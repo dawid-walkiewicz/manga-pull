@@ -5,6 +5,7 @@ import (
 	"log"
 	"main/db"
 	"main/handlers"
+	"main/plugins"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -39,6 +40,17 @@ func main() {
 	r.Post("/api/titles", handlers.CreateTitleHandler(store))
 	r.Get("/api/plugins", handlers.ListPluginsHandler(store))
 	r.Post("/api/plugins/scan", handlers.ScanPlugins(store))
+
+	runtime, err := plugins.NewRuntime(plugins.Plugin{Path: "..\\plugins\\example.zip"})
+	if err != nil {
+		log.Println(err)
+	}
+
+	result, err := runtime.Search("a")
+	if err != nil {
+		log.Println(err)
+	}
+	log.Printf("%+v\n", result)
 
 	log.Println("server listening on :8000")
 	if err := http.ListenAndServe(":8000", r); err != nil {
