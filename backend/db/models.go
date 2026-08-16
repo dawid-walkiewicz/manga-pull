@@ -2,6 +2,7 @@ package db
 
 import "time"
 
+// TODO : think about what happens when plugin disappears
 type Plugin struct {
 	ID         string `db:"id"`
 	Name       string `db:"name"`

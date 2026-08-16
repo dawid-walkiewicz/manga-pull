@@ -112,3 +112,42 @@ func (s *Store) ListPlugins(ctx context.Context) ([]Plugin, error) {
 
 	return plugins, nil
 }
+
+func (s *Store) CreatePlugins(ctx context.Context, plugins []Plugin) error {
+	if len(plugins) == 0 {
+		return nil
+	}
+
+	query := `
+		INSERT INTO plugins (
+			id,
+			name,
+			version,
+			api_version,
+			enabled,
+			path
+		)
+		VALUES (
+			:id,
+			:name,
+			:version,
+			:api_version,
+			:enabled,
+			:path
+		)
+		ON CONFLICT (id)
+		DO UPDATE SET
+    		name = excluded.name,
+      		version = excluded.version,
+        	api_version = excluded.api_version,
+         	path = excluded.path;
+      `
+
+	_, err := s.db.NamedExecContext(ctx, query, plugins)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
