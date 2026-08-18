@@ -2,14 +2,11 @@ package db
 
 import "time"
 
-// TODO : think about what happens when plugin disappears
-type Plugin struct {
-	ID         string `db:"id"`
-	Name       string `db:"name"`
-	Version    string `db:"version"`
-	APIVersion int    `db:"api_version"`
-	Enabled    bool   `db:"enabled"`
-	Path       string `db:"path"`
+type PluginRecord struct {
+	ID      string `db:"id"`
+	Name    string `db:"name"`
+	Enabled bool   `db:"enabled"`
+	Path    string `db:"path"`
 }
 
 type SavedTitle struct {

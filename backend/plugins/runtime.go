@@ -9,7 +9,7 @@ import (
 	"github.com/dop251/goja"
 )
 
-func ReadPlugin(plugin Plugin) ([]byte, error) {
+func ReadPlugin(plugin *Plugin) ([]byte, error) {
 	r, err := zip.OpenReader(plugin.Path)
 	if err != nil {
 		return nil, err
@@ -30,22 +30,32 @@ func ReadPlugin(plugin Plugin) ([]byte, error) {
 	return code, nil
 }
 
-func NewRuntime(plugin Plugin) (*PluginRuntime, error) {
+func NewRuntime(plugin *Plugin) (*PluginRuntime, error) {
 	vm := goja.New()
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+
+	client := NewPluginAPIClient(plugin)
+
+	if err := vm.Set("api", map[string]any{
+		"get": client.Get,
+	}); err != nil {
+		return nil, fmt.Errorf("register plugin api: %w", err)
+	}
 
 	code, err := ReadPlugin(plugin)
 	if err != nil {
 		return nil, fmt.Errorf("read plugin: %w", err)
 	}
 
-	_, err = vm.RunScript("main.js", string(code))
-	if err != nil {
-		log.Println(err)
-		return nil, err
+	if _, err := vm.RunScript("main.js", string(code)); err != nil {
+		return nil, fmt.Errorf("run plugin: %w", err)
 	}
 
-	runtime := PluginRuntime{Plugin: plugin, vm: vm}
+	runtime := PluginRuntime{
+		Plugin: plugin,
+		vm:     vm,
+		client: client,
+	}
 
 	search, ok := goja.AssertFunction(vm.Get("search"))
 	if !ok {

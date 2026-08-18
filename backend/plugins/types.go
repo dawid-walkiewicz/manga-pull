@@ -6,7 +6,7 @@ import (
 	"github.com/dop251/goja"
 )
 
-type Plugin struct {
+type Manifest struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Version     string   `json:"version"`
@@ -14,13 +14,21 @@ type Plugin struct {
 	Description string   `json:"description"`
 	Transport   string   `json:"transport"`
 	Domains     []string `json:"domains"`
-	Path        string   `json:"-"`
+}
+
+type Plugin struct {
+	Manifest
+
+	Path    string
+	Enabled bool
 }
 
 type PluginRuntime struct {
-	Plugin Plugin
+	Plugin *Plugin
 
-	vm              *goja.Runtime
+	vm     *goja.Runtime
+	client *PluginAPIClient
+
 	search          goja.Callable
 	browse          goja.Callable
 	getTitle        goja.Callable

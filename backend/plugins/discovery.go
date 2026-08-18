@@ -13,9 +13,10 @@ import (
 	"strings"
 )
 
+var idPattern = regexp.MustCompile(`^[a-z0-9]+([.-][a-z0-9]+)*$`)
 var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
-func FindPlugins(dir string) ([]string, error) {
+func FindPluginZips(dir string) ([]string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
@@ -44,49 +45,57 @@ func FindPlugins(dir string) ([]string, error) {
 }
 
 func LoadPlugins(zips []string) []Plugin {
-	plugins := make([]Plugin, 0, len(zips))
-	for _, p := range zips {
-		r, err := zip.OpenReader(p)
+	result := make([]Plugin, 0, len(zips))
+
+	for _, path := range zips {
+		plugin, err := loadPlugin(path)
 		if err != nil {
-			log.Println(err)
+			log.Printf("load plugin %q: %v", path, err)
 			continue
 		}
 
-		for _, f := range r.File {
-			if f.Name == "manifest.json" {
-				rc, err := f.Open()
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-
-				decoder := json.NewDecoder(rc)
-
-				var plugin Plugin
-				if err := decoder.Decode(&plugin); err != nil {
-					log.Println(err)
-					continue
-				}
-
-				err = validateManifest(plugin)
-				if err != nil {
-					log.Printf("invalid plugin %q: %v", p, err)
-					continue
-				}
-				plugin.Path = p
-				plugins = append(plugins, plugin)
-
-				rc.Close()
-			}
-		}
-		r.Close()
+		result = append(result, plugin)
 	}
-	return plugins
+
+	return result
 }
 
-func validateManifest(manifest Plugin) error {
+func loadPlugin(path string) (Plugin, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return Plugin{}, err
+	}
+	defer r.Close()
+
+	manifestFile, err := r.Open("manifest.json")
+	if err != nil {
+		return Plugin{}, fmt.Errorf("open manifest: %w", err)
+	}
+	defer manifestFile.Close()
+
+	var manifest Manifest
+
+	if err := json.NewDecoder(manifestFile).Decode(&manifest); err != nil {
+		return Plugin{}, fmt.Errorf("decode manifest: %w", err)
+	}
+
+	if err := validateManifest(manifest); err != nil {
+		return Plugin{}, fmt.Errorf("invalid manifest: %w", err)
+	}
+
+	return Plugin{
+		Manifest: manifest,
+		Path:     path,
+	}, nil
+}
+
+func validateManifest(manifest Manifest) error {
 	if len(manifest.ID) < 1 {
 		return errors.New("id is required")
+	}
+
+	if !idPattern.MatchString(manifest.ID) {
+		return fmt.Errorf("invalid id: %q", manifest.ID)
 	}
 
 	if len(manifest.Name) < 1 {

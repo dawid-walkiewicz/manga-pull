@@ -96,8 +96,8 @@ func (s *Store) CreateSavedTitle(ctx context.Context, title SavedTitle) (int64, 
 	return id, nil
 }
 
-func (s *Store) ListPlugins(ctx context.Context) ([]Plugin, error) {
-	plugins := make([]Plugin, 0)
+func (s *Store) ListPlugins(ctx context.Context) ([]PluginRecord, error) {
+	plugins := make([]PluginRecord, 0)
 
 	err := s.db.SelectContext(ctx, &plugins,
 		`
@@ -113,7 +113,7 @@ func (s *Store) ListPlugins(ctx context.Context) ([]Plugin, error) {
 	return plugins, nil
 }
 
-func (s *Store) CreatePlugins(ctx context.Context, plugins []Plugin) error {
+func (s *Store) CreatePlugins(ctx context.Context, plugins []PluginRecord) error {
 	if len(plugins) == 0 {
 		return nil
 	}
@@ -122,28 +122,38 @@ func (s *Store) CreatePlugins(ctx context.Context, plugins []Plugin) error {
 		INSERT INTO plugins (
 			id,
 			name,
-			version,
-			api_version,
 			enabled,
 			path
 		)
 		VALUES (
 			:id,
 			:name,
-			:version,
-			:api_version,
 			:enabled,
 			:path
 		)
 		ON CONFLICT (id)
 		DO UPDATE SET
     		name = excluded.name,
-      		version = excluded.version,
-        	api_version = excluded.api_version,
          	path = excluded.path;
       `
 
 	_, err := s.db.NamedExecContext(ctx, query, plugins)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Store) SetPluginEnabled(ctx context.Context, id string, enabled bool) error {
+	query := `
+		UPDATE plugins
+		SET enabled = ?
+    	WHERE id = ?
+      `
+
+	_, err := s.db.ExecContext(ctx, query, enabled, id)
 
 	if err != nil {
 		return err

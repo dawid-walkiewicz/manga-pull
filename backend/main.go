@@ -5,7 +5,7 @@ import (
 	"log"
 	"main/db"
 	"main/handlers"
-	"main/plugins"
+	"main/services"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -20,7 +20,13 @@ func main() {
 	}
 	defer database.Close()
 
-	store := db.NewStore(database)
+	dbStore := db.NewStore(database)
+
+	pluginManager := services.NewPluginManager(dbStore, "../plugins")
+
+	if err := pluginManager.Start(context.Background()); err != nil {
+		log.Printf("plugin manager start: %v", err)
+	}
 
 	r := chi.NewRouter()
 
@@ -35,22 +41,14 @@ func main() {
 		w.Write([]byte("Ok"))
 	})
 
-	r.Get("/api/titles", handlers.ListTitlesHandler(store))
-	r.Get("/api/titles/{id}", handlers.GetTitleHandler(store))
-	r.Post("/api/titles", handlers.CreateTitleHandler(store))
-	r.Get("/api/plugins", handlers.ListPluginsHandler(store))
-	r.Post("/api/plugins/scan", handlers.ScanPlugins(store))
-
-	runtime, err := plugins.NewRuntime(plugins.Plugin{Path: "..\\plugins\\example.zip"})
-	if err != nil {
-		log.Println(err)
-	}
-
-	result, err := runtime.Search("a")
-	if err != nil {
-		log.Println(err)
-	}
-	log.Printf("%+v\n", result)
+	r.Get("/api/titles", handlers.ListTitlesHandler(dbStore))
+	r.Get("/api/titles/{id}", handlers.GetTitleHandler(dbStore))
+	r.Post("/api/titles", handlers.CreateTitleHandler(dbStore))
+	r.Get("/api/plugins", handlers.ListPluginsHandler(pluginManager))
+	r.Post("/api/plugins/scan", handlers.ScanPluginsHandler(pluginManager))
+	r.Post("/api/plugins/{id}/enable", handlers.EnablePluginHandler(pluginManager))
+	r.Post("/api/plugins/{id}/disable", handlers.DisablePluginHandler(pluginManager))
+	r.Get("/api/plugins/{id}/search", handlers.SearchTitleHandler(pluginManager))
 
 	log.Println("server listening on :8000")
 	if err := http.ListenAndServe(":8000", r); err != nil {
