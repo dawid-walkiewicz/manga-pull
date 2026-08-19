@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"main/db"
 	"main/plugins"
 )
+
+var ErrPluginNotFound = errors.New("plugin not found")
 
 type PluginManager struct {
 	store *db.Store
@@ -45,6 +48,11 @@ func (m *PluginManager) findPlugin(id string) *plugins.Plugin {
 	}
 
 	return nil
+}
+
+func (m *PluginManager) Plugin(id string) (*plugins.Plugin, bool) {
+	plugin := m.findPlugin(id)
+	return plugin, plugin != nil
 }
 
 func applyPluginState(
@@ -119,7 +127,7 @@ func (m *PluginManager) Start(ctx context.Context) error {
 func (m *PluginManager) Enable(ctx context.Context, id string) error {
 	plugin := m.findPlugin(id)
 	if plugin == nil {
-		return fmt.Errorf("plugin %q not found", id)
+		return fmt.Errorf("%w: %s", ErrPluginNotFound, id)
 	}
 
 	if plugin.Enabled {
@@ -145,7 +153,7 @@ func (m *PluginManager) Enable(ctx context.Context, id string) error {
 func (m *PluginManager) Disable(ctx context.Context, id string) error {
 	plugin := m.findPlugin(id)
 	if plugin == nil {
-		return fmt.Errorf("plugin %q not found", id)
+		return fmt.Errorf("%w: %s", ErrPluginNotFound, id)
 	}
 
 	if !plugin.Enabled {

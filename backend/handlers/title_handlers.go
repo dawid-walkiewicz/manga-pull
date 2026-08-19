@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"main/db"
 	"net/http"
@@ -15,14 +17,13 @@ func ListTitlesHandler(store *db.Store) http.HandlerFunc {
 		titles, err := store.ListSavedTitles(r.Context())
 		if err != nil {
 			log.Printf("ListTitles: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(titles); err != nil {
 			log.Printf("ListTitles: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 	}
 }
@@ -34,21 +35,25 @@ func GetTitleHandler(store *db.Store) http.HandlerFunc {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			log.Printf("GetTitle: %v", err)
-			http.Error(w, "invalid id", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid id")
 			return
 		}
 
 		title, err := store.GetSavedTitle(r.Context(), id)
 		if err != nil {
 			log.Printf("GetTitle: %v", err)
-			http.Error(w, "title not found", http.StatusNotFound)
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "title not found")
+				return
+			}
+
+			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(title); err != nil {
 			log.Printf("GetTitle: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 	}
 }
@@ -88,7 +93,7 @@ func CreateTitleHandler(store *db.Store) http.HandlerFunc {
 		var req CreateSavedTitleRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("CreateTitle: %v", err)
-			http.Error(w, "invalid json", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid json")
 			return
 		}
 
@@ -96,7 +101,7 @@ func CreateTitleHandler(store *db.Store) http.HandlerFunc {
 		id, err := store.CreateSavedTitle(r.Context(), title)
 		if err != nil {
 			log.Printf("CreateTitle: %v", err)
-			http.Error(w, "failed to create title", http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -104,8 +109,6 @@ func CreateTitleHandler(store *db.Store) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		if err := json.NewEncoder(w).Encode(map[string]int64{"id": id}); err != nil {
 			log.Printf("CreateTitle: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
-
 	}
 }
