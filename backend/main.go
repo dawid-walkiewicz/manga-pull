@@ -2,19 +2,24 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"main/common"
 	"main/db"
 	"main/handlers"
 	"main/services"
 	"net/http"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 func main() {
+	common.InitEnv()
+
 	ctx := context.Background()
-	database, err := db.Open(ctx, "database.db")
+	database, err := db.Open(ctx, filepath.Join(common.DataDir, "database.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -22,7 +27,7 @@ func main() {
 
 	dbStore := db.NewStore(database)
 
-	pluginManager := services.NewPluginManager(dbStore, "../plugins")
+	pluginManager := services.NewPluginManager(dbStore, common.PluginsDir)
 
 	if err := pluginManager.Start(context.Background()); err != nil {
 		log.Printf("plugin manager start: %v", err)
@@ -50,8 +55,9 @@ func main() {
 	r.Post("/api/plugins/{id}/disable", handlers.DisablePluginHandler(pluginManager))
 	r.Get("/api/plugins/{id}/search", handlers.SearchTitleHandler(pluginManager))
 
-	log.Println("server listening on :8000")
-	if err := http.ListenAndServe(":8000", r); err != nil {
+	app_port := fmt.Sprintf(":%d", common.AppPort)
+	log.Printf("server listening on %s", app_port)
+	if err := http.ListenAndServe(app_port, r); err != nil {
 		log.Fatal(err)
 	}
 }

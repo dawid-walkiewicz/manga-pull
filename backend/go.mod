@@ -6,6 +6,7 @@ require (
 	github.com/dop251/goja v0.0.0-20260806115107-493f22071ef6
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/jmoiron/sqlx v1.4.0
+	github.com/joho/godotenv v1.5.1
 	github.com/pressly/goose/v3 v3.27.3
 	modernc.org/sqlite v1.56.0
 )
