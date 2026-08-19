@@ -61,7 +61,7 @@ func DisablePluginHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func SearchTitleHandler(service *services.PluginManager) http.HandlerFunc {
+func SearchPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		plugin, ok := service.Runtime(id)
@@ -83,6 +83,58 @@ func SearchTitleHandler(service *services.PluginManager) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(titles); err != nil {
 			log.Printf("SearchTitle: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	}
+}
+
+func BrowsePluginTitlesHandler(service *services.PluginManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		plugin, ok := service.Runtime(id)
+		if !ok {
+			log.Printf("BrowsePluginTitles: runtime not found")
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+
+		titles, err := plugin.Browse()
+		if err != nil {
+			log.Printf("BrowsePluginTitles: %v", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(titles); err != nil {
+			log.Printf("BrowsePluginTitles: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		}
+	}
+}
+
+func GetPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		plugin, ok := service.Runtime(id)
+		if !ok {
+			log.Printf("GetPluginTitle: runtime not found")
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+
+		titleId := chi.URLParam(r, "titleId")
+		title, err := plugin.GetTitle(titleId)
+
+		if err != nil {
+			log.Printf("GetPluginTitle: %v", err)
+			http.Error(w, "title not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(title); err != nil {
+			log.Printf("GetPluginTitle: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 	}
