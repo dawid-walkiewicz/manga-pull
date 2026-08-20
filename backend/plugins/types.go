@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"main/db"
 	"time"
 
 	"github.com/dop251/goja"
@@ -62,4 +63,19 @@ type Chapter struct {
 	GroupName   *string    `json:"groupName"`
 	Language    *string    `json:"language"`
 	PublishedAt *time.Time `json:"publishedAt"`
+}
+
+func (c *Chapter) ConvertToModel(titleId int64) db.Chapter {
+	return db.Chapter{
+		SavedTitleID: titleId,
+		RemoteID:     c.ID,
+		Number:       c.Number,
+		Volume:       c.Volume,
+		Season:       c.Season,
+		Title:        c.Title,
+		GroupName:    c.GroupName,
+		Language:     c.Language,
+		PublishedAt:  c.PublishedAt,
+		Downloaded:   false,
+	}
 }

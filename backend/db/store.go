@@ -50,7 +50,13 @@ func (s *Store) ListSavedTitles(ctx context.Context) ([]SavedTitle, error) {
 	return titles, nil
 }
 
-func (s *Store) CreateSavedTitle(ctx context.Context, title SavedTitle) (int64, error) {
+func (s *Store) SaveTitle(ctx context.Context, title SavedTitle, chapters []Chapter) (int64, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
 	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO saved_titles (
 			plugin_id,
@@ -88,12 +94,49 @@ func (s *Store) CreateSavedTitle(ctx context.Context, title SavedTitle) (int64, 
 		return 0, err
 	}
 
-	id, err := result.LastInsertId()
+	titleID, err := result.LastInsertId()
 	if err != nil {
 		return 0, err
 	}
 
-	return id, nil
+	for i := range chapters {
+		chapters[i].SavedTitleID = titleID
+
+		if _, err := tx.NamedExecContext(ctx, `
+				INSERT INTO chapters (
+					saved_title_id,
+					remote_id,
+					number,
+					volume,
+					season,
+					title,
+					group_name,
+					language,
+					published_at,
+					downloaded
+				)
+				VALUES (
+					:saved_title_id,
+					:remote_id,
+					:number,
+					:volume,
+					:season,
+					:title,
+					:group_name,
+					:language,
+					:published_at,
+					:downloaded
+				)
+			`, chapters[i]); err != nil {
+			return 0, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return titleID, nil
 }
 
 func (s *Store) ListPlugins(ctx context.Context) ([]PluginRecord, error) {

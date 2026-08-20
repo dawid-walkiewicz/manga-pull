@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 )
 
 type HTTPResponse struct {
@@ -33,6 +34,13 @@ func (r HTTPResponse) JSON() (any, error) {
 	return value, nil
 }
 
+type HTTPRequest struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
+}
+
 type PluginAPIClient struct {
 	client  *http.Client
 	domains []string
@@ -45,26 +53,50 @@ func NewPluginAPIClient(plugin *Plugin) *PluginAPIClient {
 	}
 }
 
-func (c *PluginAPIClient) Get(rawURL string) (map[string]any, error) {
-	u, err := url.Parse(rawURL)
+func (c *PluginAPIClient) Request(req HTTPRequest) (map[string]any, error) {
+	u, err := url.Parse(req.URL)
 	if err != nil {
 		return nil, err
 	}
 
-	if !slices.Contains(c.domains, u.Hostname()) {
-		return nil, fmt.Errorf(
-			"domain %q is not allowed",
-			u.Hostname(),
-		)
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported URL scheme %q", u.Scheme)
 	}
 
-	resp, err := c.client.Get(rawURL)
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("missing URL host")
+	}
+
+	if !slices.Contains(c.domains, u.Hostname()) {
+		return nil, fmt.Errorf("domain %q is not allowed", u.Hostname())
+	}
+
+	method := req.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	var body io.Reader
+	if req.Body != "" {
+		body = strings.NewReader(req.Body)
+	}
+
+	httpReq, err := http.NewRequest(method, req.URL, body)
+	if err != nil {
+		return nil, err
+	}
+
+	for key, value := range req.Headers {
+		httpReq.Header.Set(key, value)
+	}
+
+	resp, err := c.client.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +104,7 @@ func (c *PluginAPIClient) Get(rawURL string) (map[string]any, error) {
 	response := HTTPResponse{
 		Status:  resp.StatusCode,
 		Headers: resp.Header,
-		Body:    body,
+		Body:    data,
 	}
 
 	return map[string]any{

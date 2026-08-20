@@ -2,13 +2,11 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"main/db"
 	"main/plugins"
+	"time"
 )
-
-var ErrPluginNotFound = errors.New("plugin not found")
 
 type PluginManager struct {
 	store *db.Store
@@ -174,6 +172,70 @@ func (m *PluginManager) Plugins() []plugins.Plugin {
 	return m.plugins
 }
 
-func (m *PluginManager) Runtime(id string) (*plugins.PluginRuntime, bool) {
-	return m.runtimes.Get(id)
+func (m *PluginManager) Runtime(id string) (*plugins.PluginRuntime, error) {
+	runtime, ok := m.runtimes.Get(id)
+	if ok {
+		return runtime, nil
+	}
+
+	plugin, ok := m.Plugin(id)
+	if !ok {
+		return nil, ErrPluginNotFound
+	}
+
+	if !plugin.Enabled {
+		return nil, ErrPluginDisabled
+	}
+
+	return nil, ErrPluginRuntime
+}
+
+func (m *PluginManager) SaveTitle(
+	ctx context.Context,
+	pluginID string,
+	remoteID string,
+) (*db.SavedTitle, error) {
+	plugin, err := m.Runtime(pluginID)
+	if err != nil {
+		return nil, err
+	}
+
+	title, err := plugin.GetTitle(remoteID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
+	}
+
+	now := time.Now()
+	savedTitle := db.SavedTitle{
+		PluginID:            pluginID,
+		RemoteID:            remoteID,
+		Title:               title.Title,
+		AlternativeTitles:   title.AlternativeTitles,
+		Author:              title.Author,
+		Artist:              title.Artist,
+		Status:              title.Status,
+		Description:         title.Description,
+		Cover:               title.Cover,
+		GroupFilter:         []string{},
+		DirectoryName:       title.Title,
+		ChapterNameTemplate: "{{if .volume}}v{{.volume}} {{else if .season}}s{{.season}} {{end}}ch.{{.number}}{{if .group}} - {{.group}}{{end}}",
+		LastRefreshedAt:     &now,
+	}
+
+	var chapters = make([]db.Chapter, 0, len(title.Chapters))
+	for _, c := range title.Chapters {
+		chapters = append(chapters, c.ConvertToModel(0))
+	}
+
+	idCreated, err := m.store.SaveTitle(ctx, savedTitle, chapters)
+	if err != nil {
+		return nil, err
+	}
+
+	created, err := m.store.GetSavedTitle(ctx, idCreated)
+	if err != nil {
+		return nil, err
+	}
+
+	return &created, nil
 }
