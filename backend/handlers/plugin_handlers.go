@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
+	"net/http"
+
+	"main/db"
 	"main/plugins"
 	"main/services"
-	"net/http"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -170,6 +173,39 @@ func SavePluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		if err := json.NewEncoder(w).Encode(created); err != nil {
 			log.Printf("SavePluginTitle: %v", err)
+		}
+	}
+}
+
+func RefreshPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		titleID := chi.URLParam(r, "titleId")
+
+		refreshedTitle, err := service.RefreshTitle(r.Context(), id, titleID)
+		if err != nil {
+			log.Printf("RefreshPluginTitle: %v", err)
+			switch {
+			case errors.Is(err, services.ErrPluginNotFound):
+				writeError(w, http.StatusNotFound, "plugin not found")
+			case errors.Is(err, services.ErrPluginDisabled):
+				writeError(w, http.StatusConflict, "plugin is disabled")
+			case errors.Is(err, services.ErrPluginRuntime):
+				writeError(w, http.StatusInternalServerError, "plugin runtime unavailable")
+			case errors.Is(err, services.ErrPluginFailedFetch):
+				writeError(w, http.StatusBadGateway, "failed to fetch title from plugin")
+			case errors.Is(err, sql.ErrNoRows), errors.Is(err, db.ErrNotFound):
+				writeError(w, http.StatusNotFound, "title not found")
+			default:
+				writeError(w, http.StatusInternalServerError, "internal server error")
+			}
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(refreshedTitle); err != nil {
+			log.Printf("RefreshPluginTitle: %v", err)
 		}
 	}
 }

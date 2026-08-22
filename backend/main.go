@@ -48,6 +48,7 @@ func main() {
 
 	r.Get("/api/titles", handlers.ListTitlesHandler(dbStore))
 	r.Get("/api/titles/{id}", handlers.GetTitleHandler(dbStore))
+	r.Delete("/api/titles/{id}", handlers.DeleteTitleHandler(dbStore))
 
 	r.Get("/api/plugins", handlers.ListPluginsHandler(pluginManager))
 	r.Post("/api/plugins/scan", handlers.ScanPluginsHandler(pluginManager))
@@ -57,6 +58,7 @@ func main() {
 	r.Get("/api/plugins/{id}/titles", handlers.BrowsePluginTitlesHandler(pluginManager))
 	r.Get("/api/plugins/{id}/titles/{titleId}", handlers.GetPluginTitleHandler(pluginManager))
 	r.Post("/api/plugins/{id}/titles/{titleId}/save", handlers.SavePluginTitleHandler(pluginManager))
+	r.Post("/api/plugins/{id}/titles/{titleId}/refresh", handlers.RefreshPluginTitleHandler(pluginManager))
 
 	app_port := fmt.Sprintf(":%d", common.AppPort)
 	log.Printf("server listening on %s", app_port)

@@ -57,3 +57,30 @@ func GetTitleHandler(store *db.Store) http.HandlerFunc {
 		}
 	}
 }
+
+func DeleteTitleHandler(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := chi.URLParam(r, "id")
+
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			log.Printf("DeleteTitle: %v", err)
+			writeError(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+
+		err = store.DeleteSavedTitle(r.Context(), id)
+		if err != nil {
+			log.Printf("DeleteTitle: %v", err)
+			if errors.Is(err, db.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "title not found")
+				return
+			}
+
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}

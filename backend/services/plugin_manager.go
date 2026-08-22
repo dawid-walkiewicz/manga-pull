@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"main/db"
+	"main/models"
 	"main/plugins"
+	"math"
 	"time"
 )
 
@@ -238,4 +240,108 @@ func (m *PluginManager) SaveTitle(
 	}
 
 	return &created, nil
+}
+
+func (m *PluginManager) RefreshTitle(
+	ctx context.Context,
+	pluginID string,
+	remoteID string,
+) (*models.SavedTitle, error) {
+	plugin, err := m.Runtime(pluginID)
+	if err != nil {
+		return nil, err
+	}
+
+	dbTitle, err := m.store.FindSavedTitle(ctx, pluginID, remoteID)
+	if err != nil {
+		return nil, err
+	}
+
+	title, err := plugin.GetTitle(remoteID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
+	}
+
+	now := time.Now()
+	dbTitle.Title = title.Title
+	dbTitle.AlternativeTitles = title.AlternativeTitles
+	dbTitle.Author = title.Author
+	dbTitle.Artist = title.Artist
+	dbTitle.Status = title.Status
+	dbTitle.Description = title.Description
+	dbTitle.Cover = title.Cover
+	dbTitle.LastRefreshedAt = &now
+
+	var refreshedChapters = make([]db.Chapter, 0, len(title.Chapters))
+	for _, c := range title.Chapters {
+		refreshedChapters = append(refreshedChapters, c.ConvertToModel(dbTitle.ID))
+	}
+
+	// oldChapters, err := m.store.ListChapters(ctx, dbTitle.ID)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	_, err = m.store.RefreshTitle(ctx, dbTitle, refreshedChapters)
+	if err != nil {
+		return nil, err
+	}
+
+	chapters, err := m.store.ListChapters(ctx, dbTitle.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	responseChapters := make([]models.Chapter, len(chapters))
+	for i, c := range chapters {
+		responseChapters[i] = models.Chapter{
+			ID:           c.ID,
+			SavedTitleID: c.SavedTitleID,
+			RemoteID:     c.RemoteID,
+			Number:       c.Number,
+			Volume:       c.Volume,
+			Season:       c.Season,
+			Title:        c.Title,
+			GroupName:    c.GroupName,
+			Language:     c.Language,
+			PublishedAt:  c.PublishedAt,
+			Downloaded:   c.Downloaded,
+		}
+	}
+
+	refreshedTitle := models.SavedTitle{
+		ID:                  dbTitle.ID,
+		PluginID:            dbTitle.PluginID,
+		RemoteID:            dbTitle.RemoteID,
+		Title:               dbTitle.Title,
+		AlternativeTitles:   dbTitle.AlternativeTitles,
+		Author:              dbTitle.Author,
+		Artist:              dbTitle.Artist,
+		Status:              dbTitle.Status,
+		Description:         dbTitle.Description,
+		Cover:               dbTitle.Cover,
+		GroupFilter:         dbTitle.GroupFilter,
+		DirectoryName:       dbTitle.DirectoryName,
+		ChapterNameTemplate: dbTitle.ChapterNameTemplate,
+		LastRefreshedAt:     dbTitle.LastRefreshedAt,
+		Chapters:            responseChapters,
+	}
+	return &refreshedTitle, nil
+}
+
+func filterNewChapters(old, incoming []db.Chapter) []db.Chapter {
+	var max float64
+	for _, ch := range old {
+		max = math.Max(ch.Number, max)
+	}
+
+	result := make([]db.Chapter, 0)
+
+	for _, ch := range incoming {
+		if ch.Number > max {
+			result = append(result, ch)
+		}
+	}
+
+	return result
 }
