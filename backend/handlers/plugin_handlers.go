@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"main/db"
+	"main/models"
 	"main/plugins"
 	"main/services"
 
@@ -150,7 +151,7 @@ func SavePluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
 		id := chi.URLParam(r, "id")
 		titleID := chi.URLParam(r, "titleId")
 
-		created, err := service.SaveTitle(r.Context(), id, titleID)
+		createdID, err := service.SaveTitle(r.Context(), id, titleID)
 		if err != nil {
 			switch {
 			case errors.Is(err, services.ErrPluginNotFound):
@@ -169,9 +170,11 @@ func SavePluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
 			return
 		}
 
+		response := models.SaveTitleResponse{ID: createdID}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		if err := json.NewEncoder(w).Encode(created); err != nil {
+		if err := json.NewEncoder(w).Encode(response); err != nil {
 			log.Printf("SavePluginTitle: %v", err)
 		}
 	}

@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"main/db"
+	"time"
+)
 
 type SavedTitle struct {
 	ID                  int64      `json:"id"`
@@ -18,7 +21,7 @@ type SavedTitle struct {
 	ChapterNameTemplate string     `json:"chapterNameTemplate"`
 	LastRefreshedAt     *time.Time `json:"lastRefreshedAt"`
 
-	Chapters []Chapter
+	Chapters []Chapter `json:"chapters"`
 }
 
 type Chapter struct {
@@ -33,4 +36,63 @@ type Chapter struct {
 	Language     *string    `json:"language"`
 	PublishedAt  *time.Time `json:"publishedAt"`
 	Downloaded   bool       `json:"downloaded"`
+}
+
+func ConvertSavedTitle(title db.SavedTitle, chapters []db.Chapter) SavedTitle {
+	responseChapters := make([]Chapter, len(chapters))
+	for i, c := range chapters {
+		responseChapters[i] = Chapter{
+			ID:           c.ID,
+			SavedTitleID: c.SavedTitleID,
+			RemoteID:     c.RemoteID,
+			Number:       c.Number,
+			Volume:       c.Volume,
+			Season:       c.Season,
+			Title:        c.Title,
+			GroupName:    c.GroupName,
+			Language:     c.Language,
+			PublishedAt:  c.PublishedAt,
+			Downloaded:   c.Downloaded,
+		}
+	}
+
+	titleWithChapters := SavedTitle{
+		ID:                  title.ID,
+		PluginID:            title.PluginID,
+		RemoteID:            title.RemoteID,
+		Title:               title.Title,
+		AlternativeTitles:   title.AlternativeTitles,
+		Author:              title.Author,
+		Artist:              title.Artist,
+		Status:              title.Status,
+		Description:         title.Description,
+		Cover:               title.Cover,
+		GroupFilter:         title.GroupFilter,
+		DirectoryName:       title.DirectoryName,
+		ChapterNameTemplate: title.ChapterNameTemplate,
+		LastRefreshedAt:     title.LastRefreshedAt,
+		Chapters:            responseChapters,
+	}
+
+	return titleWithChapters
+}
+
+type SavedTitleSummary struct {
+	ID       int64   `json:"id"`
+	PluginID string  `json:"pluginId"`
+	RemoteID string  `json:"remoteId"`
+	Title    string  `json:"title"`
+	Cover    *string `json:"cover"`
+}
+
+func ConvertSavedTitleToSummary(title db.SavedTitle) SavedTitleSummary {
+	summary := SavedTitleSummary{
+		ID:       title.ID,
+		PluginID: title.PluginID,
+		RemoteID: title.RemoteID,
+		Title:    title.Title,
+		Cover:    title.Cover,
+	}
+
+	return summary
 }

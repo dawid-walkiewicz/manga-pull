@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"main/db"
+	"main/models"
 	"net/http"
 	"strconv"
 
@@ -21,8 +22,13 @@ func ListTitlesHandler(store *db.Store) http.HandlerFunc {
 			return
 		}
 
+		summaries := make([]models.SavedTitleSummary, 0, len(titles))
+		for _, t := range titles {
+			summaries = append(summaries, models.ConvertSavedTitleToSummary(t))
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(titles); err != nil {
+		if err := json.NewEncoder(w).Encode(summaries); err != nil {
 			log.Printf("ListTitles: %v", err)
 		}
 	}
@@ -51,8 +57,18 @@ func GetTitleHandler(store *db.Store) http.HandlerFunc {
 			return
 		}
 
+		chapters, err := store.ListChapters(r.Context(), id)
+		if err != nil {
+			log.Printf("GetTitle: %v", err)
+
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+
+		fullTitle := models.ConvertSavedTitle(title, chapters)
+
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(title); err != nil {
+		if err := json.NewEncoder(w).Encode(fullTitle); err != nil {
 			log.Printf("GetTitle: %v", err)
 		}
 	}

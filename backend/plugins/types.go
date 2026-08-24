@@ -20,8 +20,8 @@ type Manifest struct {
 type Plugin struct {
 	Manifest
 
-	Path    string
-	Enabled bool
+	Path    string `json:"path"`
+	Enabled bool   `json:"enabled"`
 }
 
 type PluginRuntime struct {

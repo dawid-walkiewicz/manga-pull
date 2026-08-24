@@ -196,15 +196,15 @@ func (m *PluginManager) SaveTitle(
 	ctx context.Context,
 	pluginID string,
 	remoteID string,
-) (*db.SavedTitle, error) {
+) (int64, error) {
 	plugin, err := m.Runtime(pluginID)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	title, err := plugin.GetTitle(remoteID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
+		return 0, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
 	}
 
 	now := time.Now()
@@ -231,15 +231,10 @@ func (m *PluginManager) SaveTitle(
 
 	idCreated, err := m.store.SaveTitle(ctx, savedTitle, chapters)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	created, err := m.store.GetSavedTitle(ctx, idCreated)
-	if err != nil {
-		return nil, err
-	}
-
-	return &created, nil
+	return idCreated, nil
 }
 
 func (m *PluginManager) RefreshTitle(
@@ -292,40 +287,7 @@ func (m *PluginManager) RefreshTitle(
 		return nil, err
 	}
 
-	responseChapters := make([]models.Chapter, len(chapters))
-	for i, c := range chapters {
-		responseChapters[i] = models.Chapter{
-			ID:           c.ID,
-			SavedTitleID: c.SavedTitleID,
-			RemoteID:     c.RemoteID,
-			Number:       c.Number,
-			Volume:       c.Volume,
-			Season:       c.Season,
-			Title:        c.Title,
-			GroupName:    c.GroupName,
-			Language:     c.Language,
-			PublishedAt:  c.PublishedAt,
-			Downloaded:   c.Downloaded,
-		}
-	}
-
-	refreshedTitle := models.SavedTitle{
-		ID:                  dbTitle.ID,
-		PluginID:            dbTitle.PluginID,
-		RemoteID:            dbTitle.RemoteID,
-		Title:               dbTitle.Title,
-		AlternativeTitles:   dbTitle.AlternativeTitles,
-		Author:              dbTitle.Author,
-		Artist:              dbTitle.Artist,
-		Status:              dbTitle.Status,
-		Description:         dbTitle.Description,
-		Cover:               dbTitle.Cover,
-		GroupFilter:         dbTitle.GroupFilter,
-		DirectoryName:       dbTitle.DirectoryName,
-		ChapterNameTemplate: dbTitle.ChapterNameTemplate,
-		LastRefreshedAt:     dbTitle.LastRefreshedAt,
-		Chapters:            responseChapters,
-	}
+	refreshedTitle := models.ConvertSavedTitle(dbTitle, chapters)
 	return &refreshedTitle, nil
 }
 
