@@ -10,89 +10,115 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AboutRouteImport } from './routes/about'
-import { Route as DemoBetterAuthRouteImport } from './routes/demo/better-auth'
-import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as PluginsRouteImport } from './routes/plugins'
+import { Route as BrowseIndexRouteImport } from './routes/browse/index'
+import { Route as LibraryIndexRouteImport } from './routes/library/index'
+import { Route as LibraryTitleIdRouteImport } from './routes/library/$titleId'
+import { Route as BrowsePluginIdIndexRouteImport } from './routes/browse/$pluginId/index'
+import { Route as BrowsePluginIdTitleIdRouteImport } from './routes/browse/$pluginId/$titleId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
+const PluginsRoute = PluginsRouteImport.update({
+  id: '/plugins',
+  path: '/plugins',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DemoBetterAuthRoute = DemoBetterAuthRouteImport.update({
-  id: '/demo/better-auth',
-  path: '/demo/better-auth',
+const BrowseIndexRoute = BrowseIndexRouteImport.update({
+  id: '/browse/',
+  path: '/browse/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
-  id: '/demo/tanstack-query',
-  path: '/demo/tanstack-query',
+const LibraryIndexRoute = LibraryIndexRouteImport.update({
+  id: '/library/',
+  path: '/library/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
+const LibraryTitleIdRoute = LibraryTitleIdRouteImport.update({
+  id: '/library/$titleId',
+  path: '/library/$titleId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BrowsePluginIdIndexRoute = BrowsePluginIdIndexRouteImport.update({
+  id: '/browse/$pluginId/',
+  path: '/browse/$pluginId/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BrowsePluginIdTitleIdRoute = BrowsePluginIdTitleIdRouteImport.update({
+  id: '/browse/$pluginId/$titleId',
+  path: '/browse/$pluginId/$titleId',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/demo/better-auth': typeof DemoBetterAuthRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/plugins': typeof PluginsRoute
+  '/library/$titleId': typeof LibraryTitleIdRoute
+  '/browse/': typeof BrowseIndexRoute
+  '/library/': typeof LibraryIndexRoute
+  '/browse/$pluginId/$titleId': typeof BrowsePluginIdTitleIdRoute
+  '/browse/$pluginId/': typeof BrowsePluginIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/demo/better-auth': typeof DemoBetterAuthRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/plugins': typeof PluginsRoute
+  '/library/$titleId': typeof LibraryTitleIdRoute
+  '/browse': typeof BrowseIndexRoute
+  '/library': typeof LibraryIndexRoute
+  '/browse/$pluginId/$titleId': typeof BrowsePluginIdTitleIdRoute
+  '/browse/$pluginId': typeof BrowsePluginIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/about': typeof AboutRoute
-  '/demo/better-auth': typeof DemoBetterAuthRoute
-  '/demo/tanstack-query': typeof DemoTanstackQueryRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
+  '/plugins': typeof PluginsRoute
+  '/library/$titleId': typeof LibraryTitleIdRoute
+  '/browse/': typeof BrowseIndexRoute
+  '/library/': typeof LibraryIndexRoute
+  '/browse/$pluginId/$titleId': typeof BrowsePluginIdTitleIdRoute
+  '/browse/$pluginId/': typeof BrowsePluginIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/about'
-    | '/demo/better-auth'
-    | '/demo/tanstack-query'
-    | '/api/auth/$'
+    | '/plugins'
+    | '/library/$titleId'
+    | '/browse/'
+    | '/library/'
+    | '/browse/$pluginId/$titleId'
+    | '/browse/$pluginId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/about'
-    | '/demo/better-auth'
-    | '/demo/tanstack-query'
-    | '/api/auth/$'
+    | '/plugins'
+    | '/library/$titleId'
+    | '/browse'
+    | '/library'
+    | '/browse/$pluginId/$titleId'
+    | '/browse/$pluginId'
   id:
     | '__root__'
     | '/'
-    | '/about'
-    | '/demo/better-auth'
-    | '/demo/tanstack-query'
-    | '/api/auth/$'
+    | '/plugins'
+    | '/library/$titleId'
+    | '/browse/'
+    | '/library/'
+    | '/browse/$pluginId/$titleId'
+    | '/browse/$pluginId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AboutRoute: typeof AboutRoute
-  DemoBetterAuthRoute: typeof DemoBetterAuthRoute
-  DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
-  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  PluginsRoute: typeof PluginsRoute
+  LibraryTitleIdRoute: typeof LibraryTitleIdRoute
+  BrowseIndexRoute: typeof BrowseIndexRoute
+  LibraryIndexRoute: typeof LibraryIndexRoute
+  BrowsePluginIdTitleIdRoute: typeof BrowsePluginIdTitleIdRoute
+  BrowsePluginIdIndexRoute: typeof BrowsePluginIdIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -104,32 +130,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
+    '/plugins': {
+      id: '/plugins'
+      path: '/plugins'
+      fullPath: '/plugins'
+      preLoaderRoute: typeof PluginsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/demo/better-auth': {
-      id: '/demo/better-auth'
-      path: '/demo/better-auth'
-      fullPath: '/demo/better-auth'
-      preLoaderRoute: typeof DemoBetterAuthRouteImport
+    '/browse/': {
+      id: '/browse/'
+      path: '/browse'
+      fullPath: '/browse/'
+      preLoaderRoute: typeof BrowseIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/demo/tanstack-query': {
-      id: '/demo/tanstack-query'
-      path: '/demo/tanstack-query'
-      fullPath: '/demo/tanstack-query'
-      preLoaderRoute: typeof DemoTanstackQueryRouteImport
+    '/library/': {
+      id: '/library/'
+      path: '/library'
+      fullPath: '/library/'
+      preLoaderRoute: typeof LibraryIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
+    '/library/$titleId': {
+      id: '/library/$titleId'
+      path: '/library/$titleId'
+      fullPath: '/library/$titleId'
+      preLoaderRoute: typeof LibraryTitleIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/browse/$pluginId/': {
+      id: '/browse/$pluginId/'
+      path: '/browse/$pluginId'
+      fullPath: '/browse/$pluginId/'
+      preLoaderRoute: typeof BrowsePluginIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/browse/$pluginId/$titleId': {
+      id: '/browse/$pluginId/$titleId'
+      path: '/browse/$pluginId/$titleId'
+      fullPath: '/browse/$pluginId/$titleId'
+      preLoaderRoute: typeof BrowsePluginIdTitleIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -137,20 +177,13 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
-  DemoBetterAuthRoute: DemoBetterAuthRoute,
-  DemoTanstackQueryRoute: DemoTanstackQueryRoute,
-  ApiAuthSplatRoute: ApiAuthSplatRoute,
+  PluginsRoute: PluginsRoute,
+  LibraryTitleIdRoute: LibraryTitleIdRoute,
+  BrowseIndexRoute: BrowseIndexRoute,
+  LibraryIndexRoute: LibraryIndexRoute,
+  BrowsePluginIdTitleIdRoute: BrowsePluginIdTitleIdRoute,
+  BrowsePluginIdIndexRoute: BrowsePluginIdIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
