@@ -218,6 +218,7 @@ func (m *PluginManager) SaveTitle(
 		Status:              title.Status,
 		Description:         title.Description,
 		Cover:               title.Cover,
+		URL:                 title.URL,
 		GroupFilter:         []string{},
 		DirectoryName:       title.Title,
 		ChapterNameTemplate: "{{if .volume}}v{{.volume}} {{else if .season}}s{{.season}} {{end}}ch.{{.number}}{{if .group}} - {{.group}}{{end}}",

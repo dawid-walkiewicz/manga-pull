@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -42,14 +43,16 @@ type HTTPRequest struct {
 }
 
 type PluginAPIClient struct {
-	client  *http.Client
-	domains []string
+	client   *http.Client
+	domains  []string
+	pluginID string
 }
 
 func NewPluginAPIClient(plugin *Plugin) *PluginAPIClient {
 	return &PluginAPIClient{
-		client:  &http.Client{},
-		domains: plugin.Domains,
+		client:   &http.Client{},
+		domains:  plugin.Domains,
+		pluginID: plugin.ID,
 	}
 }
 
@@ -114,4 +117,14 @@ func (c *PluginAPIClient) Request(req HTTPRequest) (map[string]any, error) {
 		"json":    response.JSON,
 		"bytes":   response.Bytes,
 	}, nil
+}
+
+func (c *PluginAPIClient) Log(level, message string, data any) {
+	log.Printf(
+		"plugin=%s level=%s message=%q data=%v",
+		c.pluginID,
+		level,
+		message,
+		data,
+	)
 }

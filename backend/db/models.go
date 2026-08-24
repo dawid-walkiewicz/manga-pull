@@ -20,6 +20,7 @@ type SavedTitle struct {
 	Status              *string    `db:"status"`
 	Description         *string    `db:"description"`
 	Cover               *string    `db:"cover"`
+	URL                 *string    `db:"url"`
 	GroupFilter         StringList `db:"group_filter"`
 	DirectoryName       string     `db:"directory_name"`
 	ChapterNameTemplate string     `db:"chapter_name_template"`
@@ -35,7 +36,7 @@ type Chapter struct {
 	Season       *int       `db:"season"`
 	Title        *string    `db:"title"`
 	GroupName    *string    `db:"group_name"`
-	Language     *string    `db:"language"`
+	URL          *string    `db:"url"`
 	PublishedAt  *time.Time `db:"published_at"`
 	Downloaded   bool       `db:"downloaded"`
 }

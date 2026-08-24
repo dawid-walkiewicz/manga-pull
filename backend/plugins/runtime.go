@@ -38,6 +38,7 @@ func NewRuntime(plugin *Plugin) (*PluginRuntime, error) {
 
 	if err := vm.Set("api", map[string]any{
 		"request": client.Request,
+		"log":     client.Log,
 	}); err != nil {
 		return nil, fmt.Errorf("register plugin api: %w", err)
 	}

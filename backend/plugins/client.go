@@ -5,6 +5,9 @@ import (
 )
 
 func (p *PluginRuntime) Search(query string) ([]TitleSummary, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	result, err := p.search(
 		goja.Undefined(),
 		p.vm.ToValue(query),
@@ -23,6 +26,9 @@ func (p *PluginRuntime) Search(query string) ([]TitleSummary, error) {
 }
 
 func (p *PluginRuntime) Browse() ([]TitleSummary, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	result, err := p.browse(goja.Undefined())
 	if err != nil {
 		return nil, err
@@ -38,6 +44,9 @@ func (p *PluginRuntime) Browse() ([]TitleSummary, error) {
 }
 
 func (p *PluginRuntime) GetTitle(id string) (*TitleDetails, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	result, err := p.getTitle(
 		goja.Undefined(),
 		p.vm.ToValue(id),

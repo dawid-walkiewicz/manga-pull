@@ -87,6 +87,7 @@ func (s *Store) SaveTitle(ctx context.Context, title SavedTitle, chapters []Chap
 			status,
 			description,
 			cover,
+			url,
 			group_filter,
 			directory_name,
 			chapter_name_template,
@@ -102,6 +103,7 @@ func (s *Store) SaveTitle(ctx context.Context, title SavedTitle, chapters []Chap
 			:status,
 			:description,
 			:cover,
+			:url,
 			:group_filter,
 			:directory_name,
 			:chapter_name_template,
@@ -130,7 +132,7 @@ func (s *Store) SaveTitle(ctx context.Context, title SavedTitle, chapters []Chap
 					season,
 					title,
 					group_name,
-					language,
+					url,
 					published_at,
 					downloaded
 				)
@@ -142,7 +144,7 @@ func (s *Store) SaveTitle(ctx context.Context, title SavedTitle, chapters []Chap
 					:season,
 					:title,
 					:group_name,
-					:language,
+					:url,
 					:published_at,
 					:downloaded
 				)
@@ -216,6 +218,7 @@ func (s *Store) RefreshTitle(ctx context.Context, title SavedTitle, incoming []C
 			status = :status,
 			description = :description,
 			cover = :cover,
+			url = :url,
 			last_refreshed_at = :last_refreshed_at
 		WHERE id = :id;
 	`, title)
@@ -232,7 +235,7 @@ func (s *Store) RefreshTitle(ctx context.Context, title SavedTitle, incoming []C
 			season = :season,
 			title = :title,
 			group_name = :group_name,
-			language = :language,
+			url = :url,
 			published_at = :published_at
 		WHERE saved_title_id = :saved_title_id
 			AND remote_id = :remote_id
@@ -246,10 +249,10 @@ func (s *Store) RefreshTitle(ctx context.Context, title SavedTitle, incoming []C
 		UPDATE chapters
 		SET
 			remote_id = :remote_id,
-			title = :title
+			title = :title,
+			url = :url
 		WHERE saved_title_id = :saved_title_id
 			AND number = :number
-			AND language IS :language
 			AND group_name IS :group_name
 				AND (
 			        (:volume IS NOT NULL AND volume = :volume)
@@ -271,7 +274,7 @@ func (s *Store) RefreshTitle(ctx context.Context, title SavedTitle, incoming []C
 			season,
 			title,
 			group_name,
-			language,
+			url,
 			published_at,
 			downloaded
 		)
@@ -283,7 +286,7 @@ func (s *Store) RefreshTitle(ctx context.Context, title SavedTitle, incoming []C
 			:season,
 			:title,
 			:group_name,
-			:language,
+			:url,
 			:published_at,
 			:downloaded
 		)

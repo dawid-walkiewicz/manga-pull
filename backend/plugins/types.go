@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"main/db"
+	"sync"
 	"time"
 
 	"github.com/dop251/goja"
@@ -30,6 +31,8 @@ type PluginRuntime struct {
 	vm     *goja.Runtime
 	client *PluginAPIClient
 
+	mu sync.Mutex
+
 	search          goja.Callable
 	browse          goja.Callable
 	getTitle        goja.Callable
@@ -51,6 +54,7 @@ type TitleDetails struct {
 	Artist            *string   `json:"artist"`
 	Status            *string   `json:"status"`
 	Description       *string   `json:"description"`
+	URL               *string   `json:"url"`
 	Chapters          []Chapter `json:"chapters"`
 }
 
@@ -63,6 +67,7 @@ type Chapter struct {
 	GroupName   *string    `json:"groupName"`
 	Language    *string    `json:"language"`
 	PublishedAt *time.Time `json:"publishedAt"`
+	URL         *string    `json:"url"`
 }
 
 func (c *Chapter) ConvertToModel(titleId int64) db.Chapter {
@@ -74,7 +79,7 @@ func (c *Chapter) ConvertToModel(titleId int64) db.Chapter {
 		Season:       c.Season,
 		Title:        c.Title,
 		GroupName:    c.GroupName,
-		Language:     c.Language,
+		URL:          c.URL,
 		PublishedAt:  c.PublishedAt,
 		Downloaded:   false,
 	}

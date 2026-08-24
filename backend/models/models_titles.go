@@ -16,6 +16,7 @@ type SavedTitle struct {
 	Status              *string    `json:"status"`
 	Description         *string    `json:"description"`
 	Cover               *string    `json:"cover"`
+	URL                 *string    `json:"url"`
 	GroupFilter         []string   `json:"groupFilter"`
 	DirectoryName       string     `json:"directoryName"`
 	ChapterNameTemplate string     `json:"chapterNameTemplate"`
@@ -33,7 +34,7 @@ type Chapter struct {
 	Season       *int       `json:"season"`
 	Title        *string    `json:"title"`
 	GroupName    *string    `json:"groupName"`
-	Language     *string    `json:"language"`
+	URL          *string    `json:"url"`
 	PublishedAt  *time.Time `json:"publishedAt"`
 	Downloaded   bool       `json:"downloaded"`
 }
@@ -50,7 +51,7 @@ func ConvertSavedTitle(title db.SavedTitle, chapters []db.Chapter) SavedTitle {
 			Season:       c.Season,
 			Title:        c.Title,
 			GroupName:    c.GroupName,
-			Language:     c.Language,
+			URL:          c.URL,
 			PublishedAt:  c.PublishedAt,
 			Downloaded:   c.Downloaded,
 		}
@@ -67,6 +68,7 @@ func ConvertSavedTitle(title db.SavedTitle, chapters []db.Chapter) SavedTitle {
 		Status:              title.Status,
 		Description:         title.Description,
 		Cover:               title.Cover,
+		URL:                 title.URL,
 		GroupFilter:         title.GroupFilter,
 		DirectoryName:       title.DirectoryName,
 		ChapterNameTemplate: title.ChapterNameTemplate,
