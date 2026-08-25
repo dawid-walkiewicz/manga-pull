@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -27,6 +29,10 @@ func (s *Store) GetSavedTitle(ctx context.Context, id int64) (SavedTitle, error)
 	)
 
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return SavedTitle{}, ErrNotFound
+		}
+
 		return SavedTitle{}, err
 	}
 
@@ -46,6 +52,10 @@ func (s *Store) FindSavedTitle(ctx context.Context, pluginID string, remoteID st
 	)
 
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return SavedTitle{}, ErrNotFound
+		}
+
 		return SavedTitle{}, err
 	}
 

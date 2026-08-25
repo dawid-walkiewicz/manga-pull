@@ -9,8 +9,7 @@ export function getRouter() {
 		routeTree,
 		context,
 		scrollRestoration: true,
-		defaultPreload: "intent",
-		defaultPreloadStaleTime: 0,
+		defaultPreload: false,
 	});
 
 	return router;

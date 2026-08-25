@@ -46,6 +46,7 @@ export type PluginTitleDetails = {
 	status: string | null;
 	description: string | null;
 	chapters: PluginChapter[];
+	savedId: number | null;
 };
 
 export type SavedTitleSummary = {
@@ -86,6 +87,7 @@ export type SavedTitleDetails = {
 	description: string | null;
 	cover: string | null;
 	groupFilter: string[];
+	url: string | null;
 	directoryName: string;
 	chapterNameTemplate: string;
 	lastRefreshedAt: string | null;

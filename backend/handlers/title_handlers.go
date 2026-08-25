@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -18,7 +17,7 @@ func ListTitlesHandler(store *db.Store) http.HandlerFunc {
 		titles, err := store.ListSavedTitles(r.Context())
 		if err != nil {
 			log.Printf("ListTitles: %v", err)
-			writeError(w, http.StatusInternalServerError, "internal server error")
+			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -41,19 +40,19 @@ func GetTitleHandler(store *db.Store) http.HandlerFunc {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			log.Printf("GetTitle: %v", err)
-			writeError(w, http.StatusBadRequest, "invalid id")
+			WriteError(w, http.StatusBadRequest, "invalid id")
 			return
 		}
 
 		title, err := store.GetSavedTitle(r.Context(), id)
 		if err != nil {
 			log.Printf("GetTitle: %v", err)
-			if errors.Is(err, sql.ErrNoRows) {
-				writeError(w, http.StatusNotFound, "title not found")
+			if errors.Is(err, db.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, "title not found")
 				return
 			}
 
-			writeError(w, http.StatusInternalServerError, "internal server error")
+			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -61,7 +60,7 @@ func GetTitleHandler(store *db.Store) http.HandlerFunc {
 		if err != nil {
 			log.Printf("GetTitle: %v", err)
 
-			writeError(w, http.StatusInternalServerError, "internal server error")
+			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -81,7 +80,7 @@ func DeleteTitleHandler(store *db.Store) http.HandlerFunc {
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			log.Printf("DeleteTitle: %v", err)
-			writeError(w, http.StatusBadRequest, "invalid id")
+			WriteError(w, http.StatusBadRequest, "invalid id")
 			return
 		}
 
@@ -89,11 +88,11 @@ func DeleteTitleHandler(store *db.Store) http.HandlerFunc {
 		if err != nil {
 			log.Printf("DeleteTitle: %v", err)
 			if errors.Is(err, db.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "title not found")
+				WriteError(w, http.StatusNotFound, "title not found")
 				return
 			}
 
-			writeError(w, http.StatusInternalServerError, "internal server error")
+			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 

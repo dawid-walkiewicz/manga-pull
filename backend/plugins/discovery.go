@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +18,8 @@ import (
 
 var idPattern = regexp.MustCompile(`^[a-z0-9]+([.-][a-z0-9]+)*$`)
 var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+var ErrPluginIconNotFound = errors.New("plugin icon not found")
 
 func FindPluginZips(dir string) ([]string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -119,4 +124,45 @@ func validateManifest(manifest Manifest) error {
 	}
 
 	return nil
+}
+
+func ReadIcon(plugin *Plugin) ([]byte, string, error) {
+	r, err := zip.OpenReader(plugin.Path)
+	if err != nil {
+		return nil, "", err
+	}
+	defer r.Close()
+
+	extension := []string{
+		".png",
+		".jpg",
+		".jpeg",
+		".webp",
+	}
+
+	for _, ext := range extension {
+		file, err := r.Open("icon" + ext)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+
+			return nil, "", err
+		}
+		defer file.Close()
+
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return nil, "", err
+		}
+
+		contentType := http.DetectContentType(data)
+		if !strings.HasPrefix(contentType, "image/") {
+			return nil, "", fmt.Errorf("invalid plugin icon %q", "icon"+ext)
+		}
+
+		return data, contentType, nil
+	}
+
+	return nil, "", ErrPluginIconNotFound
 }

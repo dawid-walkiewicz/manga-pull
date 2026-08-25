@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 	"main/db"
-	"main/models"
 	"main/plugins"
-	"math"
-	"time"
 )
 
 type PluginManager struct {
@@ -136,7 +133,7 @@ func (m *PluginManager) Enable(ctx context.Context, id string) error {
 
 	runtime, err := plugins.NewRuntime(plugin)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrPluginRuntime, err)
 	}
 
 	m.runtimes.Register(runtime)
@@ -190,121 +187,4 @@ func (m *PluginManager) Runtime(id string) (*plugins.PluginRuntime, error) {
 	}
 
 	return nil, ErrPluginRuntime
-}
-
-func (m *PluginManager) SaveTitle(
-	ctx context.Context,
-	pluginID string,
-	remoteID string,
-) (int64, error) {
-	plugin, err := m.Runtime(pluginID)
-	if err != nil {
-		return 0, err
-	}
-
-	title, err := plugin.GetTitle(remoteID)
-	if err != nil {
-		return 0, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
-	}
-
-	now := time.Now()
-	savedTitle := db.SavedTitle{
-		PluginID:            pluginID,
-		RemoteID:            remoteID,
-		Title:               title.Title,
-		AlternativeTitles:   title.AlternativeTitles,
-		Author:              title.Author,
-		Artist:              title.Artist,
-		Status:              title.Status,
-		Description:         title.Description,
-		Cover:               title.Cover,
-		URL:                 title.URL,
-		GroupFilter:         []string{},
-		DirectoryName:       title.Title,
-		ChapterNameTemplate: "{{if .volume}}v{{.volume}} {{else if .season}}s{{.season}} {{end}}ch.{{.number}}{{if .group}} - {{.group}}{{end}}",
-		LastRefreshedAt:     &now,
-	}
-
-	var chapters = make([]db.Chapter, 0, len(title.Chapters))
-	for _, c := range title.Chapters {
-		chapters = append(chapters, c.ConvertToModel(0))
-	}
-
-	idCreated, err := m.store.SaveTitle(ctx, savedTitle, chapters)
-	if err != nil {
-		return 0, err
-	}
-
-	return idCreated, nil
-}
-
-func (m *PluginManager) RefreshTitle(
-	ctx context.Context,
-	pluginID string,
-	remoteID string,
-) (*models.SavedTitle, error) {
-	plugin, err := m.Runtime(pluginID)
-	if err != nil {
-		return nil, err
-	}
-
-	dbTitle, err := m.store.FindSavedTitle(ctx, pluginID, remoteID)
-	if err != nil {
-		return nil, err
-	}
-
-	title, err := plugin.GetTitle(remoteID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
-	}
-
-	now := time.Now()
-	dbTitle.Title = title.Title
-	dbTitle.AlternativeTitles = title.AlternativeTitles
-	dbTitle.Author = title.Author
-	dbTitle.Artist = title.Artist
-	dbTitle.Status = title.Status
-	dbTitle.Description = title.Description
-	dbTitle.Cover = title.Cover
-	dbTitle.LastRefreshedAt = &now
-
-	var refreshedChapters = make([]db.Chapter, 0, len(title.Chapters))
-	for _, c := range title.Chapters {
-		refreshedChapters = append(refreshedChapters, c.ConvertToModel(dbTitle.ID))
-	}
-
-	// oldChapters, err := m.store.ListChapters(ctx, dbTitle.ID)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	_, err = m.store.RefreshTitle(ctx, dbTitle, refreshedChapters)
-	if err != nil {
-		return nil, err
-	}
-
-	chapters, err := m.store.ListChapters(ctx, dbTitle.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	refreshedTitle := models.ConvertSavedTitle(dbTitle, chapters)
-	return &refreshedTitle, nil
-}
-
-func filterNewChapters(old, incoming []db.Chapter) []db.Chapter {
-	var max float64
-	for _, ch := range old {
-		max = math.Max(ch.Number, max)
-	}
-
-	result := make([]db.Chapter, 0)
-
-	for _, ch := range incoming {
-		if ch.Number > max {
-			result = append(result, ch)
-		}
-	}
-
-	return result
 }

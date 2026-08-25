@@ -10,6 +10,7 @@ import (
 	"main/services"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -34,7 +35,25 @@ func main() {
 		log.Printf("plugin manager start: %v", err)
 	}
 
+	titleManager := services.NewTitleManager(dbStore, pluginManager)
+
 	r := chi.NewRouter()
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if isAPIPath(r.URL.Path) {
+			handlers.WriteError(w, http.StatusNotFound, "not found")
+			return
+		}
+
+		http.NotFound(w, r)
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		if isAPIPath(r.URL.Path) {
+			handlers.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		handlers.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+	})
 
 	r.Use(middleware.Logger)
 	r.Use(cors.Handler(cors.Options{
@@ -71,17 +90,22 @@ func main() {
 
 	r.Get("/api/plugins", handlers.ListPluginsHandler(pluginManager))
 	r.Post("/api/plugins/scan", handlers.ScanPluginsHandler(pluginManager))
-	r.Post("/api/plugins/{id}/enable", handlers.EnablePluginHandler(pluginManager))
-	r.Post("/api/plugins/{id}/disable", handlers.DisablePluginHandler(pluginManager))
-	r.Get("/api/plugins/{id}/search", handlers.SearchPluginTitleHandler(pluginManager))
-	r.Get("/api/plugins/{id}/titles", handlers.BrowsePluginTitlesHandler(pluginManager))
-	r.Get("/api/plugins/{id}/titles/{titleId}", handlers.GetPluginTitleHandler(pluginManager))
-	r.Post("/api/plugins/{id}/titles/{titleId}/save", handlers.SavePluginTitleHandler(pluginManager))
-	r.Post("/api/plugins/{id}/titles/{titleId}/refresh", handlers.RefreshPluginTitleHandler(pluginManager))
+	r.Get("/api/plugins/{pluginId}/icon", handlers.GetPluginIconHandler(pluginManager))
+	r.Post("/api/plugins/{pluginId}/enable", handlers.EnablePluginHandler(pluginManager))
+	r.Post("/api/plugins/{pluginId}/disable", handlers.DisablePluginHandler(pluginManager))
+	r.Get("/api/plugins/{pluginId}/search", handlers.SearchPluginTitleHandler(pluginManager))
+	r.Get("/api/plugins/{pluginId}/titles", handlers.BrowsePluginTitlesHandler(pluginManager))
+	r.Get("/api/plugins/{pluginId}/titles/{titleId}", handlers.GetPluginTitleHandler(titleManager))
+	r.Post("/api/plugins/{pluginId}/titles/{titleId}/save", handlers.SavePluginTitleHandler(titleManager))
+	r.Post("/api/plugins/{pluginId}/titles/{titleId}/refresh", handlers.RefreshPluginTitleHandler(titleManager))
 
 	app_port := fmt.Sprintf(":%d", common.AppPort)
 	log.Printf("server listening on %s", app_port)
 	if err := http.ListenAndServe(app_port, r); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func isAPIPath(path string) bool {
+	return path == "/api" || strings.HasPrefix(path, "/api/")
 }

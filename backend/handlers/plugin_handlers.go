@@ -1,13 +1,11 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 
-	"main/db"
 	"main/models"
 	"main/plugins"
 	"main/services"
@@ -30,7 +28,7 @@ func ScanPluginsHandler(service *services.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := service.Scan(r.Context()); err != nil {
 			log.Printf("ScanPlugins: %v", err)
-			writeError(w, http.StatusInternalServerError, "internal server error")
+			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -38,18 +36,45 @@ func ScanPluginsHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
+func GetPluginIconHandler(service *services.PluginManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "pluginId")
+		plugin, ok := service.Plugin(id)
+		if !ok {
+			WriteError(w, http.StatusNotFound, "plugin not found")
+			return
+		}
+		icon, contentType, err := plugins.ReadIcon(plugin)
+
+		if err != nil {
+			log.Printf("GetPluginIcon: %v", err)
+			if errors.Is(err, plugins.ErrPluginIconNotFound) {
+				WriteError(w, http.StatusNotFound, "plugin icon not found")
+				return
+			}
+
+			WriteError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write(icon)
+	}
+}
+
 func EnablePluginHandler(service *services.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "pluginId")
 		err := service.Enable(r.Context(), id)
 		if err != nil {
 			log.Printf("EnablePlugin: %v", err)
 			if errors.Is(err, services.ErrPluginNotFound) {
-				writeError(w, http.StatusNotFound, "plugin not found")
+				WriteError(w, http.StatusNotFound, "plugin not found")
 				return
 			}
 
-			writeError(w, http.StatusInternalServerError, "internal server error")
+			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -59,16 +84,16 @@ func EnablePluginHandler(service *services.PluginManager) http.HandlerFunc {
 
 func DisablePluginHandler(service *services.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "pluginId")
 		err := service.Disable(r.Context(), id)
 		if err != nil {
 			log.Printf("DisablePlugin: %v", err)
 			if errors.Is(err, services.ErrPluginNotFound) {
-				writeError(w, http.StatusNotFound, "plugin not found")
+				WriteError(w, http.StatusNotFound, "plugin not found")
 				return
 			}
 
-			writeError(w, http.StatusInternalServerError, "internal server error")
+			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 
@@ -78,7 +103,7 @@ func DisablePluginHandler(service *services.PluginManager) http.HandlerFunc {
 
 func SearchPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "pluginId")
 		plugin, ok := pluginRuntime(service, id, w)
 		if !ok {
 			return
@@ -89,7 +114,7 @@ func SearchPluginTitleHandler(service *services.PluginManager) http.HandlerFunc 
 		titles, err := plugin.Search(title)
 		if err != nil {
 			log.Printf("SearchTitle: %v", err)
-			writeError(w, http.StatusBadGateway, "failed to fetch titles from plugin")
+			WriteError(w, http.StatusBadGateway, "failed to fetch titles from plugin")
 			return
 		}
 
@@ -102,7 +127,7 @@ func SearchPluginTitleHandler(service *services.PluginManager) http.HandlerFunc 
 
 func BrowsePluginTitlesHandler(service *services.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "pluginId")
 		plugin, ok := pluginRuntime(service, id, w)
 		if !ok {
 			return
@@ -111,7 +136,7 @@ func BrowsePluginTitlesHandler(service *services.PluginManager) http.HandlerFunc
 		titles, err := plugin.Browse()
 		if err != nil {
 			log.Printf("BrowsePluginTitles: %v", err)
-			writeError(w, http.StatusBadGateway, "failed to fetch titles from plugin")
+			WriteError(w, http.StatusBadGateway, "failed to fetch titles from plugin")
 			return
 		}
 
@@ -122,20 +147,15 @@ func BrowsePluginTitlesHandler(service *services.PluginManager) http.HandlerFunc
 	}
 }
 
-func GetPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
+func GetPluginTitleHandler(service *services.TitleManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		plugin, ok := pluginRuntime(service, id, w)
-		if !ok {
-			return
-		}
-
+		id := chi.URLParam(r, "pluginId")
 		titleId := chi.URLParam(r, "titleId")
-		title, err := plugin.GetTitle(titleId)
+		title, err := service.GetPluginTitle(r.Context(), id, titleId)
 
 		if err != nil {
 			log.Printf("GetPluginTitle: %v", err)
-			writeError(w, http.StatusBadGateway, "failed to fetch title from plugin")
+			writePluginServiceError(w, err, "failed to fetch title from plugin")
 			return
 		}
 
@@ -146,27 +166,15 @@ func GetPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func SavePluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
+func SavePluginTitleHandler(service *services.TitleManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "pluginId")
 		titleID := chi.URLParam(r, "titleId")
 
 		createdID, err := service.SaveTitle(r.Context(), id, titleID)
 		if err != nil {
-			switch {
-			case errors.Is(err, services.ErrPluginNotFound):
-				writeError(w, http.StatusNotFound, "plugin not found")
-			case errors.Is(err, services.ErrPluginDisabled):
-				writeError(w, http.StatusConflict, "plugin is disabled")
-			case errors.Is(err, services.ErrPluginRuntime):
-				writeError(w, http.StatusInternalServerError, "plugin runtime unavailable")
-			case errors.Is(err, services.ErrPluginFailedFetch):
-				log.Println(err)
-				writeError(w, http.StatusBadGateway, "failed to fetch title from plugin")
-			default:
-				writeError(w, http.StatusInternalServerError, "error during saving title")
-			}
-
+			log.Printf("SavePluginTitle: %v", err)
+			writePluginServiceError(w, err, "failed to fetch title from plugin")
 			return
 		}
 
@@ -180,28 +188,15 @@ func SavePluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func RefreshPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
+func RefreshPluginTitleHandler(service *services.TitleManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
+		id := chi.URLParam(r, "pluginId")
 		titleID := chi.URLParam(r, "titleId")
 
 		refreshedTitle, err := service.RefreshTitle(r.Context(), id, titleID)
 		if err != nil {
 			log.Printf("RefreshPluginTitle: %v", err)
-			switch {
-			case errors.Is(err, services.ErrPluginNotFound):
-				writeError(w, http.StatusNotFound, "plugin not found")
-			case errors.Is(err, services.ErrPluginDisabled):
-				writeError(w, http.StatusConflict, "plugin is disabled")
-			case errors.Is(err, services.ErrPluginRuntime):
-				writeError(w, http.StatusInternalServerError, "plugin runtime unavailable")
-			case errors.Is(err, services.ErrPluginFailedFetch):
-				writeError(w, http.StatusBadGateway, "failed to fetch title from plugin")
-			case errors.Is(err, sql.ErrNoRows), errors.Is(err, db.ErrNotFound):
-				writeError(w, http.StatusNotFound, "title not found")
-			default:
-				writeError(w, http.StatusInternalServerError, "internal server error")
-			}
+			writePluginServiceError(w, err, "failed to fetch title from plugin")
 			return
 		}
 
@@ -222,11 +217,11 @@ func pluginRuntime(
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrPluginNotFound):
-			writeError(w, http.StatusNotFound, "plugin not found")
+			WriteError(w, http.StatusNotFound, "plugin not found")
 		case errors.Is(err, services.ErrPluginDisabled):
-			writeError(w, http.StatusConflict, "plugin is disabled")
+			WriteError(w, http.StatusConflict, "plugin is disabled")
 		default:
-			writeError(w, http.StatusInternalServerError, "plugin runtime unavailable")
+			WriteError(w, http.StatusInternalServerError, "plugin runtime unavailable")
 		}
 		return nil, false
 	}

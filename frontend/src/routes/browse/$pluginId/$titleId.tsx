@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { Pin } from "lucide-react";
 import { useState } from "react";
 import { Button } from "#/components/ui/button";
@@ -6,7 +6,18 @@ import { getPluginTitle, savePluginTitle } from "#/lib/api";
 
 export const Route = createFileRoute("/browse/$pluginId/$titleId")({
 	loader: async ({ params }) => {
-		return getPluginTitle(params.pluginId, params.titleId);
+		const title = await getPluginTitle(params.pluginId, params.titleId);
+
+		if (title.savedId) {
+			throw redirect({
+				to: "/library/$titleId",
+				params: {
+					titleId: title.savedId,
+				},
+			});
+		}
+
+		return title;
 	},
 	component: RouteComponent,
 });
@@ -52,9 +63,11 @@ function RouteComponent() {
 						</span>
 					</div>
 				</div>
-				<Button variant="outline" onClick={handleSave} className="w-32">
-					<Pin data-icon="inline-start" /> {saving ? "Saving" : "Save"}
-				</Button>
+				<div>
+					<Button variant="outline" onClick={handleSave} className="w-32">
+						<Pin data-icon="inline-start" /> {saving ? "Saving" : "Save"}
+					</Button>
+				</div>
 				<span>{titleDetails.description}</span>
 			</div>
 			<div className="flex flex-col gap-4">

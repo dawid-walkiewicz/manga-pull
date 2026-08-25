@@ -9,7 +9,7 @@ import (
 	"github.com/dop251/goja"
 )
 
-func ReadPlugin(plugin *Plugin) ([]byte, error) {
+func LoadPluginCode(plugin *Plugin) ([]byte, error) {
 	r, err := zip.OpenReader(plugin.Path)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func NewRuntime(plugin *Plugin) (*PluginRuntime, error) {
 		return nil, fmt.Errorf("register plugin api: %w", err)
 	}
 
-	code, err := ReadPlugin(plugin)
+	code, err := LoadPluginCode(plugin)
 	if err != nil {
 		return nil, fmt.Errorf("read plugin: %w", err)
 	}

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { RotateCw } from "lucide-react";
-import { Button } from "#/components/ui/button";
-import { getTitle, refreshPluginTitle } from "#/lib/api";
+import { ExternalLink, Pin, RotateCw } from "lucide-react";
+import { Button, buttonVariants } from "#/components/ui/button";
+import { deleteTitle, getTitle, refreshPluginTitle } from "#/lib/api";
 
 export const Route = createFileRoute("/library/$titleId")({
 	params: {
@@ -21,6 +21,23 @@ export const Route = createFileRoute("/library/$titleId")({
 
 function RouteComponent() {
 	const titleDetails = Route.useLoaderData();
+	const navigate = Route.useNavigate();
+
+	async function handleDelete() {
+		try {
+			await deleteTitle(titleDetails.id);
+			await navigate({
+				to: "/browse/$pluginId/$titleId",
+				params: {
+					pluginId: titleDetails.pluginId,
+					titleId: titleDetails.remoteId,
+				},
+			});
+		} catch (err) {
+			console.log(err);
+		}
+	}
+
 	return (
 		<div className="grid grid-cols-2 gap-6 p-8">
 			<div className="flex flex-col gap-4">
@@ -37,6 +54,19 @@ function RouteComponent() {
 							Alternative titles: {titleDetails.alternativeTitles.join(", ")}
 						</span>
 					</div>
+				</div>
+				<div>
+					<Button variant="destructive" onClick={handleDelete} className="w-32">
+						<Pin data-icon="inline-start" /> Saved
+					</Button>
+					{titleDetails.url && (
+						<a
+							href={titleDetails.url}
+							className={buttonVariants({ variant: "ghost", size: "icon" })}
+						>
+							<ExternalLink />
+						</a>
+					)}
 				</div>
 				<span>{titleDetails.description}</span>
 			</div>

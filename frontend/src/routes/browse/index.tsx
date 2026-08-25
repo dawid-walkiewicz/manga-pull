@@ -7,7 +7,7 @@ export const Route = createFileRoute("/browse/")({
 });
 
 function RouteComponent() {
-	const plugins = Route.useLoaderData();
+	const plugins = Route.useLoaderData().filter((plugin) => plugin.enabled);
 
 	return (
 		<div className="p-8">
