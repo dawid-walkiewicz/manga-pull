@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"main/db"
+	"main/plugins"
 	"main/services"
 	"net/http"
 )
@@ -24,13 +25,13 @@ func WriteError(w http.ResponseWriter, status int, message string) {
 
 func writePluginServiceError(w http.ResponseWriter, err error, fetchMessage string) {
 	switch {
-	case errors.Is(err, services.ErrPluginNotFound):
+	case errors.Is(err, plugins.ErrPluginNotFound):
 		WriteError(w, http.StatusNotFound, "plugin not found")
-	case errors.Is(err, services.ErrPluginDisabled):
+	case errors.Is(err, plugins.ErrPluginDisabled):
 		WriteError(w, http.StatusConflict, "plugin is disabled")
-	case errors.Is(err, services.ErrPluginRuntime):
+	case errors.Is(err, plugins.ErrPluginRuntime):
 		WriteError(w, http.StatusInternalServerError, "plugin runtime unavailable")
-	case errors.Is(err, services.ErrPluginFailedFetch):
+	case errors.Is(err, plugins.ErrPluginFailedFetch):
 		WriteError(w, http.StatusBadGateway, fetchMessage)
 	case errors.Is(err, services.ErrTitleAlreadySaved):
 		WriteError(w, http.StatusConflict, "title already saved")

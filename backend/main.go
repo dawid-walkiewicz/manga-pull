@@ -7,6 +7,8 @@ import (
 	"main/common"
 	"main/db"
 	"main/handlers"
+	"main/jobs"
+	"main/plugins"
 	"main/services"
 	"net/http"
 	"path/filepath"
@@ -29,13 +31,17 @@ func main() {
 
 	dbStore := db.NewStore(database)
 
-	pluginManager := services.NewPluginManager(dbStore, common.PluginsDir)
+	pluginManager := plugins.NewPluginManager(dbStore, common.PluginsDir)
 
 	if err := pluginManager.Start(context.Background()); err != nil {
 		log.Printf("plugin manager start: %v", err)
 	}
 
 	titleManager := services.NewTitleManager(dbStore, pluginManager)
+
+	jobRunner := jobs.NewRunner(dbStore, titleManager)
+	jobWorker := jobs.NewWorker(dbStore, jobRunner)
+	go jobWorker.Run(ctx)
 
 	r := chi.NewRouter()
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +104,12 @@ func main() {
 	r.Get("/api/plugins/{pluginId}/titles/{titleId}", handlers.GetPluginTitleHandler(titleManager))
 	r.Post("/api/plugins/{pluginId}/titles/{titleId}/save", handlers.SavePluginTitleHandler(titleManager))
 	r.Post("/api/plugins/{pluginId}/titles/{titleId}/refresh", handlers.RefreshPluginTitleHandler(titleManager))
+
+	r.Get("/api/jobs", handlers.ListJobsHandler(dbStore))
+	// r.Get("/api/jobs/watch", handlers.WatchJobsHandler(dbStore))
+	r.Post("/api/jobs/{jobId}/cancel", handlers.CancelJobHandler(dbStore, jobWorker))
+	// r.Post("/api/jobs/{jobId}/pause", handlers.PauseJobHandler(jobWorker))
+	r.Post("/api/jobs/refresh/{titleId}", handlers.RefreshPluginTitleJobHandler(dbStore))
 
 	app_port := fmt.Sprintf(":%d", common.AppPort)
 	log.Printf("server listening on %s", app_port)

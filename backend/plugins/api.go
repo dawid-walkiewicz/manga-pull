@@ -121,9 +121,9 @@ func (c *PluginAPIClient) Request(req HTTPRequest) (map[string]any, error) {
 
 func (c *PluginAPIClient) Log(level, message string, data any) {
 	log.Printf(
-		"plugin=%s level=%s message=%q data=%v",
-		c.pluginID,
+		"[level=%s][%s]: message=%q | data=%v",
 		level,
+		c.pluginID,
 		message,
 		data,
 	)

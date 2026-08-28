@@ -13,7 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func ListPluginsHandler(service *services.PluginManager) http.HandlerFunc {
+func ListPluginsHandler(service *plugins.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		plugins := service.Plugins()
 
@@ -24,7 +24,7 @@ func ListPluginsHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func ScanPluginsHandler(service *services.PluginManager) http.HandlerFunc {
+func ScanPluginsHandler(service *plugins.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := service.Scan(r.Context()); err != nil {
 			log.Printf("ScanPlugins: %v", err)
@@ -36,7 +36,7 @@ func ScanPluginsHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func GetPluginIconHandler(service *services.PluginManager) http.HandlerFunc {
+func GetPluginIconHandler(service *plugins.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "pluginId")
 		plugin, ok := service.Plugin(id)
@@ -63,13 +63,13 @@ func GetPluginIconHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func EnablePluginHandler(service *services.PluginManager) http.HandlerFunc {
+func EnablePluginHandler(service *plugins.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "pluginId")
 		err := service.Enable(r.Context(), id)
 		if err != nil {
 			log.Printf("EnablePlugin: %v", err)
-			if errors.Is(err, services.ErrPluginNotFound) {
+			if errors.Is(err, plugins.ErrPluginNotFound) {
 				WriteError(w, http.StatusNotFound, "plugin not found")
 				return
 			}
@@ -82,13 +82,13 @@ func EnablePluginHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func DisablePluginHandler(service *services.PluginManager) http.HandlerFunc {
+func DisablePluginHandler(service *plugins.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "pluginId")
 		err := service.Disable(r.Context(), id)
 		if err != nil {
 			log.Printf("DisablePlugin: %v", err)
-			if errors.Is(err, services.ErrPluginNotFound) {
+			if errors.Is(err, plugins.ErrPluginNotFound) {
 				WriteError(w, http.StatusNotFound, "plugin not found")
 				return
 			}
@@ -101,7 +101,7 @@ func DisablePluginHandler(service *services.PluginManager) http.HandlerFunc {
 	}
 }
 
-func SearchPluginTitleHandler(service *services.PluginManager) http.HandlerFunc {
+func SearchPluginTitleHandler(service *plugins.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "pluginId")
 		plugin, ok := pluginRuntime(service, id, w)
@@ -125,7 +125,7 @@ func SearchPluginTitleHandler(service *services.PluginManager) http.HandlerFunc 
 	}
 }
 
-func BrowsePluginTitlesHandler(service *services.PluginManager) http.HandlerFunc {
+func BrowsePluginTitlesHandler(service *plugins.PluginManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "pluginId")
 		plugin, ok := pluginRuntime(service, id, w)
@@ -202,23 +202,23 @@ func RefreshPluginTitleHandler(service *services.TitleManager) http.HandlerFunc 
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(refreshedTitle); err != nil {
+		if err := json.NewEncoder(w).Encode(refreshedTitle.Title); err != nil {
 			log.Printf("RefreshPluginTitle: %v", err)
 		}
 	}
 }
 
 func pluginRuntime(
-	service *services.PluginManager,
+	service *plugins.PluginManager,
 	id string,
 	w http.ResponseWriter,
 ) (*plugins.PluginRuntime, bool) {
 	runtime, err := service.Runtime(id)
 	if err != nil {
 		switch {
-		case errors.Is(err, services.ErrPluginNotFound):
+		case errors.Is(err, plugins.ErrPluginNotFound):
 			WriteError(w, http.StatusNotFound, "plugin not found")
-		case errors.Is(err, services.ErrPluginDisabled):
+		case errors.Is(err, plugins.ErrPluginDisabled):
 			WriteError(w, http.StatusConflict, "plugin is disabled")
 		default:
 			WriteError(w, http.StatusInternalServerError, "plugin runtime unavailable")

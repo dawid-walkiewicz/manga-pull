@@ -1,30 +1,29 @@
-package services
+package plugins
 
 import (
 	"context"
 	"fmt"
 	"main/db"
-	"main/plugins"
 )
 
 type PluginManager struct {
 	store *db.Store
 	dir   string
 
-	plugins  []plugins.Plugin
-	runtimes *plugins.RuntimeRegistry
+	plugins  []Plugin
+	runtimes *RuntimeRegistry
 }
 
 func NewPluginManager(store *db.Store, dir string) *PluginManager {
 	return &PluginManager{
 		store:    store,
 		dir:      dir,
-		plugins:  make([]plugins.Plugin, 0),
-		runtimes: plugins.NewRuntimeRegistry(),
+		plugins:  make([]Plugin, 0),
+		runtimes: NewRuntimeRegistry(),
 	}
 }
 
-func convertPlugins(plugins []plugins.Plugin) []db.PluginRecord {
+func convertPlugins(plugins []Plugin) []db.PluginRecord {
 	conv_plugins := make([]db.PluginRecord, 0)
 	for _, p := range plugins {
 		conv_plugins = append(conv_plugins, db.PluginRecord{
@@ -37,7 +36,7 @@ func convertPlugins(plugins []plugins.Plugin) []db.PluginRecord {
 	return conv_plugins
 }
 
-func (m *PluginManager) findPlugin(id string) *plugins.Plugin {
+func (m *PluginManager) findPlugin(id string) *Plugin {
 	for i := range m.plugins {
 		if m.plugins[i].ID == id {
 			return &m.plugins[i]
@@ -47,15 +46,15 @@ func (m *PluginManager) findPlugin(id string) *plugins.Plugin {
 	return nil
 }
 
-func (m *PluginManager) Plugin(id string) (*plugins.Plugin, bool) {
+func (m *PluginManager) Plugin(id string) (*Plugin, bool) {
 	plugin := m.findPlugin(id)
 	return plugin, plugin != nil
 }
 
 func applyPluginState(
-	discovered []plugins.Plugin,
+	discovered []Plugin,
 	records []db.PluginRecord,
-) []plugins.Plugin {
+) []Plugin {
 	byID := make(map[string]db.PluginRecord, len(records))
 
 	for _, record := range records {
@@ -72,12 +71,12 @@ func applyPluginState(
 }
 
 func (m *PluginManager) Scan(ctx context.Context) error {
-	paths, err := plugins.FindPluginZips(m.dir)
+	paths, err := FindPluginZips(m.dir)
 	if err != nil {
 		return fmt.Errorf("find plugins: %w", err)
 	}
 
-	discovered := plugins.LoadPlugins(paths)
+	discovered := LoadPlugins(paths)
 	items := convertPlugins(discovered)
 
 	if err := m.store.CreatePlugins(ctx, items); err != nil {
@@ -106,7 +105,7 @@ func (m *PluginManager) Start(ctx context.Context) error {
 			continue
 		}
 
-		runtime, err := plugins.NewRuntime(plugin)
+		runtime, err := NewRuntime(plugin)
 		if err != nil {
 			return fmt.Errorf(
 				"start plugin %q: %w",
@@ -131,7 +130,7 @@ func (m *PluginManager) Enable(ctx context.Context, id string) error {
 		return nil
 	}
 
-	runtime, err := plugins.NewRuntime(plugin)
+	runtime, err := NewRuntime(plugin)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrPluginRuntime, err)
 	}
@@ -167,11 +166,11 @@ func (m *PluginManager) Disable(ctx context.Context, id string) error {
 	return nil
 }
 
-func (m *PluginManager) Plugins() []plugins.Plugin {
+func (m *PluginManager) Plugins() []Plugin {
 	return m.plugins
 }
 
-func (m *PluginManager) Runtime(id string) (*plugins.PluginRuntime, error) {
+func (m *PluginManager) Runtime(id string) (*PluginRuntime, error) {
 	runtime, ok := m.runtimes.Get(id)
 	if ok {
 		return runtime, nil

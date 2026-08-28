@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -421,4 +423,227 @@ func (s *Store) SetPluginEnabled(ctx context.Context, id string, enabled bool) e
 	}
 
 	return nil
+}
+
+func (s *Store) GetJob(ctx context.Context, id int64) (Job, error) {
+	var job Job
+
+	err := s.db.GetContext(ctx, &job,
+		`
+		SELECT *
+		FROM jobs
+		WHERE id = ?
+		`,
+		id,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Job{}, ErrNotFound
+		}
+
+		return Job{}, err
+	}
+
+	return job, nil
+}
+
+func (s *Store) ListJobs(ctx context.Context) ([]Job, error) {
+	jobs := make([]Job, 0)
+
+	err := s.db.SelectContext(ctx, &jobs,
+		`
+		SELECT *
+		FROM jobs
+		`,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return jobs, nil
+}
+
+func (s *Store) CreateJob(ctx context.Context, job Job) (int64, error) {
+	query := `
+		INSERT INTO jobs (
+			job_type,
+			status,
+			saved_title_id,
+			chapter_id,
+			created_at
+		)
+		VALUES (
+			:job_type,
+			:status,
+			:saved_title_id,
+			:chapter_id,
+			:created_at
+		)
+      `
+
+	result, err := s.db.NamedExecContext(ctx, query, job)
+	if err != nil {
+		return 0, err
+	}
+
+	jobID, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	return jobID, nil
+}
+
+func (s *Store) ClaimNextJob(ctx context.Context) (*Job, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var job Job
+	err = tx.GetContext(ctx, &job,
+		`
+		SELECT *
+		FROM jobs
+		WHERE status = 'queued'
+		ORDER BY created_at ASC, id ASC
+		LIMIT 1
+		`,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE jobs
+		SET
+			status = 'running',
+			progress = '0',
+			started_at = ?
+    	WHERE id = ?
+     		AND status = 'queued'
+      `, now, job.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+
+	if rows != 1 {
+		return nil, fmt.Errorf("job %d could not be claimed", job.ID)
+	}
+
+	err = tx.GetContext(ctx, &job,
+		`
+		SELECT *
+		FROM jobs
+		WHERE id = ?
+		`, job.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &job, nil
+}
+
+func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) (*Job, error) {
+	var query string
+
+	switch jobStatus.Status {
+	case "running":
+		query = `
+				UPDATE jobs
+				SET
+					status = :status,
+					progress = :progress,
+					started_at = :started_at
+				WHERE id = :id
+			`
+	case "paused":
+		query = `
+				UPDATE jobs
+				SET
+					status = :status,
+					progress = :progress
+				WHERE id = :id
+			`
+	case "retrying":
+		query = `
+				UPDATE jobs
+				SET
+					status = :status,
+					attempt = :attempt
+				WHERE id = :id
+			`
+	case "completed":
+		query = `
+				UPDATE jobs
+				SET
+					status = :status,
+					progress = :progress,
+					error_message = :error_message,
+					finished_at = :finished_at
+				WHERE id = :id
+					AND status IN ('running', 'retrying')
+			`
+	case "failed":
+		query = `
+				UPDATE jobs
+				SET
+					status = :status,
+					error_message = :error_message
+				WHERE id = :id
+					AND status IN ('running', 'retrying')
+			`
+	case "cancelled":
+		query = `
+				UPDATE jobs
+				SET
+					status = :status
+				WHERE id = :id
+					AND status IN ('queued', 'running', 'retrying', 'paused')
+			`
+	default:
+		return nil, fmt.Errorf("unsupported job status: %q", jobStatus.Status)
+	}
+
+	result, err := s.db.NamedExecContext(ctx, query, jobStatus)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows != 1 {
+		return nil, ErrNotFound
+	}
+
+	var updated Job
+	err = s.db.GetContext(ctx, &updated,
+		`
+		SELECT *
+		FROM jobs
+		WHERE id = ?
+		`, jobStatus.ID,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &updated, nil
 }

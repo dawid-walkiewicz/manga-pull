@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"main/db"
 	"main/models"
-	"math"
+	"main/plugins"
 	"time"
 )
 
 type TitleManager struct {
 	store         *db.Store
-	pluginManager *PluginManager
+	pluginManager *plugins.PluginManager
 }
 
-func NewTitleManager(dbStore *db.Store, pluginManager *PluginManager) *TitleManager {
+func NewTitleManager(dbStore *db.Store, pluginManager *plugins.PluginManager) *TitleManager {
 	return &TitleManager{
 		store:         dbStore,
 		pluginManager: pluginManager,
@@ -34,7 +34,7 @@ func (m *TitleManager) GetPluginTitle(
 
 	title, err := runtime.GetTitle(remoteID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
+		return nil, fmt.Errorf("%w: %v", plugins.ErrPluginFailedFetch, err)
 	}
 
 	result := PluginTitle{
@@ -75,10 +75,10 @@ func (m *TitleManager) SaveTitle(
 
 	title, err := plugin.GetTitle(remoteID)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
+		return 0, fmt.Errorf("%w: %v", plugins.ErrPluginFailedFetch, err)
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	savedTitle := db.SavedTitle{
 		PluginID:            pluginID,
 		RemoteID:            remoteID,
@@ -113,7 +113,7 @@ func (m *TitleManager) RefreshTitle(
 	ctx context.Context,
 	pluginID string,
 	remoteID string,
-) (*models.SavedTitle, error) {
+) (*RefreshTitleResult, error) {
 	plugin, err := m.pluginManager.Runtime(pluginID)
 	if err != nil {
 		return nil, err
@@ -126,10 +126,10 @@ func (m *TitleManager) RefreshTitle(
 
 	title, err := plugin.GetTitle(remoteID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrPluginFailedFetch, err)
+		return nil, fmt.Errorf("%w: %v", plugins.ErrPluginFailedFetch, err)
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	dbTitle.Title = title.Title
 	dbTitle.AlternativeTitles = title.AlternativeTitles
 	dbTitle.Author = title.Author
@@ -145,12 +145,12 @@ func (m *TitleManager) RefreshTitle(
 		refreshedChapters = append(refreshedChapters, c.ConvertToModel(dbTitle.ID))
 	}
 
-	// oldChapters, err := m.store.ListChapters(ctx, dbTitle.ID)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	oldChapters, err := m.store.ListChapters(ctx, dbTitle.ID)
+	if err != nil {
+		return nil, err
+	}
 
-	_, err = m.store.RefreshTitle(ctx, dbTitle, refreshedChapters)
+	newChapters, err := m.store.RefreshTitle(ctx, dbTitle, refreshedChapters)
 	if err != nil {
 		return nil, err
 	}
@@ -161,21 +161,29 @@ func (m *TitleManager) RefreshTitle(
 	}
 
 	refreshedTitle := models.ConvertSavedTitle(dbTitle, chapters)
-	return &refreshedTitle, nil
+
+	result := RefreshTitleResult{
+		Title:       refreshedTitle,
+		NewChapters: filterNewChapters(oldChapters, newChapters),
+	}
+	return &result, nil
 }
 
 func filterNewChapters(old, incoming []db.Chapter) []db.Chapter {
-	var max float64
-	for _, ch := range old {
-		max = math.Max(ch.Number, max)
+	existing := make(map[float64]struct{}, len(old))
+
+	for _, o := range old {
+		existing[o.Number] = struct{}{}
 	}
 
 	result := make([]db.Chapter, 0)
 
-	for _, ch := range incoming {
-		if ch.Number > max {
-			result = append(result, ch)
+	for _, n := range incoming {
+		if _, exists := existing[n.Number]; exists {
+			continue
 		}
+		result = append(result, n)
+		existing[n.Number] = struct{}{}
 	}
 
 	return result

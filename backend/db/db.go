@@ -15,7 +15,7 @@ import (
 var migrations embed.FS
 
 func Open(ctx context.Context, path string) (*sqlx.DB, error) {
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)"
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(3000)"
 
 	database, err := sqlx.Open("sqlite", dsn)
 	if err != nil {

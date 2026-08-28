@@ -42,15 +42,15 @@ type Chapter struct {
 }
 
 type Job struct {
-	ID           int64      `db:"id"`
-	JobType      string     `db:"job_type"`
-	Status       string     `db:"status"`
-	SavedTitleID *int64     `db:"saved_title_id"`
-	ChapterID    *int64     `db:"chapter_id"`
-	Attempt      int        `db:"attempt"`
-	Progress     string     `db:"progress"`
-	ErrorMessage *string    `db:"error_message"`
-	CreatedAt    time.Time  `db:"created_at"`
-	StartedAt    *time.Time `db:"started_at"`
-	FinishedAt   *time.Time `db:"finished_at"`
+	ID           int64      `db:"id" json:"id"`
+	JobType      string     `db:"job_type" json:"jobType"`
+	Status       string     `db:"status" json:"status"`
+	SavedTitleID *int64     `db:"saved_title_id" json:"savedTitleId"`
+	ChapterID    *int64     `db:"chapter_id" json:"chapterId"`
+	Attempt      int        `db:"attempt" json:"attempt"`
+	Progress     string     `db:"progress" json:"progress"`
+	ErrorMessage *string    `db:"error_message" json:"errorMessage"`
+	CreatedAt    time.Time  `db:"created_at" json:"createdAt"`
+	StartedAt    *time.Time `db:"started_at" json:"startedAt"`
+	FinishedAt   *time.Time `db:"finished_at" json:"finishedAt"`
 }
