@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"main/common"
 	"main/db"
 	"main/models"
 	"main/plugins"
@@ -13,12 +14,14 @@ import (
 type TitleManager struct {
 	store         *db.Store
 	pluginManager *plugins.PluginManager
+	configManager *common.ConfigManager
 }
 
-func NewTitleManager(dbStore *db.Store, pluginManager *plugins.PluginManager) *TitleManager {
+func NewTitleManager(dbStore *db.Store, pluginManager *plugins.PluginManager, configManager *common.ConfigManager) *TitleManager {
 	return &TitleManager{
 		store:         dbStore,
 		pluginManager: pluginManager,
+		configManager: configManager,
 	}
 }
 
@@ -145,9 +148,14 @@ func (m *TitleManager) RefreshTitle(
 		refreshedChapters = append(refreshedChapters, c.ConvertToModel(dbTitle.ID))
 	}
 
-	oldChapters, err := m.store.ListChapters(ctx, dbTitle.ID)
-	if err != nil {
-		return nil, err
+	config := m.configManager.Get()
+
+	var oldChapters []db.Chapter
+	if config.IgnoreReuploads {
+		oldChapters, err = m.store.ListChapters(ctx, dbTitle.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	newChapters, err := m.store.RefreshTitle(ctx, dbTitle, refreshedChapters)
@@ -160,13 +168,15 @@ func (m *TitleManager) RefreshTitle(
 		return nil, err
 	}
 
-	refreshedTitle := models.ConvertSavedTitle(dbTitle, chapters)
-
-	result := RefreshTitleResult{
-		Title:       refreshedTitle,
-		NewChapters: filterNewChapters(oldChapters, newChapters),
+	outChapters := newChapters
+	if config.IgnoreReuploads {
+		outChapters = filterNewChapters(oldChapters, newChapters)
 	}
-	return &result, nil
+
+	return &RefreshTitleResult{
+		Title:       models.ConvertSavedTitle(dbTitle, chapters),
+		NewChapters: outChapters,
+	}, nil
 }
 
 func filterNewChapters(old, incoming []db.Chapter) []db.Chapter {

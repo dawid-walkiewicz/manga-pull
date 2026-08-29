@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"main/common"
 	"main/db"
 	"sync"
 	"time"
@@ -17,23 +18,29 @@ type JobStore interface {
 	CreateJob(ctx context.Context, job db.Job) (int64, error)
 }
 
-type JobExecutor interface {
+type Executor interface {
 	Execute(ctx context.Context, job *db.Job) error
 }
 
+type ConfigGetter interface {
+	Get() common.ConfigData
+}
+
 type Worker struct {
-	store    JobStore
-	executor JobExecutor
+	store         JobStore
+	executor      Executor
+	configManager ConfigGetter
 
 	mu      sync.Mutex
 	running map[int64]context.CancelFunc
 }
 
-func NewWorker(store JobStore, executor JobExecutor) *Worker {
+func NewWorker(store JobStore, executor Executor, configManager ConfigGetter) *Worker {
 	return &Worker{
-		store:    store,
-		executor: executor,
-		running:  make(map[int64]context.CancelFunc),
+		store:         store,
+		executor:      executor,
+		configManager: configManager,
+		running:       make(map[int64]context.CancelFunc),
 	}
 }
 
@@ -105,8 +112,10 @@ func (w *Worker) processNext(ctx context.Context) error {
 	w.registerRunning(job.ID, cancel)
 	defer w.unregisterRunning(job.ID)
 
+	config := w.configManager.Get()
+
 	var lastExecErr error
-	for job.Attempt < 3 {
+	for job.Attempt < (config.MaxRetries + 1) {
 		lastExecErr = w.executor.Execute(jobCtx, job)
 		if lastExecErr == nil {
 			_, err = w.store.UpdateJobStatus(jobCtx, *markJobAsCompleted(job.ID))
@@ -122,7 +131,7 @@ func (w *Worker) processNext(ctx context.Context) error {
 			return err
 		}
 
-		if job.Attempt+1 >= 3 {
+		if job.Attempt+1 >= (config.MaxRetries + 1) {
 			break
 		}
 

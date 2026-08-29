@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"main/common"
 	"main/db"
 
 	"github.com/jmoiron/sqlx"
@@ -26,6 +27,18 @@ type fakeExecutor func(ctx context.Context, job *db.Job) error
 
 func (f fakeExecutor) Execute(ctx context.Context, job *db.Job) error {
 	return f(ctx, job)
+}
+
+type fakeConfigGetter struct {
+	config common.ConfigData
+}
+
+func (g fakeConfigGetter) Get() common.ConfigData {
+	return g.config
+}
+
+func testConfig() ConfigGetter {
+	return fakeConfigGetter{config: common.ConfigData{MaxRetries: 2}}
 }
 
 type fakeJobStore struct {
@@ -79,7 +92,7 @@ func newFakeJobStore(job db.Job) *fakeJobStore {
 	}
 }
 
-func newTestWorker(t *testing.T, executor JobExecutor) (*Worker, *db.Store, *sqlx.DB) {
+func newTestWorker(t *testing.T, executor Executor) (*Worker, *db.Store, *sqlx.DB) {
 	t.Helper()
 	if executor == nil {
 		executor = fakeExecutor(func(context.Context, *db.Job) error { return nil })
@@ -92,7 +105,7 @@ func newTestWorker(t *testing.T, executor JobExecutor) (*Worker, *db.Store, *sql
 	t.Cleanup(func() { _ = database.Close() })
 
 	store := db.NewStore(database)
-	return NewWorker(store, executor), store, database
+	return NewWorker(store, executor, testConfig()), store, database
 }
 
 func insertJob(t *testing.T, database *sqlx.DB, jobType, status string, attempt int, createdAt time.Time) int64 {
@@ -224,7 +237,7 @@ func TestProcessNextMarksJobCompletedWhenExecutorSucceeds(t *testing.T) {
 			t.Fatalf("executor job ID = %d, want 10", job.ID)
 		}
 		return nil
-	}))
+	}), testConfig())
 
 	if err := worker.processNext(context.Background()); err != nil {
 		t.Fatalf("process successful job: %v", err)
@@ -255,7 +268,7 @@ func TestProcessNextRetriesRetryableFailuresUntilSuccess(t *testing.T) {
 				return errors.New("temporary failure")
 			}
 			return nil
-		}))
+		}), testConfig())
 
 		if err := worker.processNext(context.Background()); err != nil {
 			t.Fatalf("process eventually successful job: %v", err)
@@ -280,7 +293,7 @@ func TestProcessNextDoesNotRetryUnknownJobType(t *testing.T) {
 	worker := NewWorker(store, fakeExecutor(func(_ context.Context, job *db.Job) error {
 		calls++
 		return fmt.Errorf("%w: %q", ErrJobTypeUnknown, job.JobType)
-	}))
+	}), testConfig())
 
 	if err := worker.processNext(context.Background()); err != nil {
 		t.Fatalf("process unknown job type: %v", err)
@@ -299,7 +312,7 @@ func TestProcessNextMarksJobCancelledWhenExecutorObservesCancellation(t *testing
 	store := newFakeJobStore(db.Job{ID: 13, Status: string(JobRunning), Attempt: 0})
 	worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
 		return context.Canceled
-	}))
+	}), testConfig())
 
 	if err := worker.processNext(context.Background()); err != nil {
 		t.Fatalf("process cancelled job: %v", err)
@@ -319,7 +332,7 @@ func TestProcessNextReturnsStatusUpdateErrorAndDoesNotContinue(t *testing.T) {
 	worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
 		calls++
 		return errors.New("temporary failure")
-	}))
+	}), testConfig())
 
 	err := worker.processNext(context.Background())
 	if !errors.Is(err, updateErr) {
@@ -396,6 +409,7 @@ func TestProcessNextMarksKnownJobFailedAfterLastAttemptFailure(t *testing.T) {
 	worker, store, database := newTestWorker(t, fakeExecutor(func(context.Context, *db.Job) error {
 		return errors.New("refresh_title job missing saved_title_id")
 	}))
+	worker.configManager = fakeConfigGetter{config: common.ConfigData{MaxRetries: 1}}
 	jobID := insertJob(t, database, string(JobRefreshTitle), string(JobQueued), 2, time.Now().UTC())
 
 	if err := worker.processNext(context.Background()); err != nil {
@@ -406,8 +420,8 @@ func TestProcessNextMarksKnownJobFailedAfterLastAttemptFailure(t *testing.T) {
 	if job.Status != string(JobFailed) {
 		t.Fatalf("job status = %q, want %q", job.Status, JobFailed)
 	}
-	if job.Attempt != 2 {
-		t.Fatalf("job attempt = %d, want final attempt not incremented", job.Attempt)
+	if job.Attempt != 1 {
+		t.Fatalf("job attempt = %d, want claimed attempt recorded", job.Attempt)
 	}
 	if job.ErrorMessage == nil || *job.ErrorMessage != "refresh_title job missing saved_title_id" {
 		t.Fatalf("job error message = %v, want missing saved_title_id details", job.ErrorMessage)
@@ -442,7 +456,7 @@ func TestProcessNextCancelsJobWhileWaitingForRetry(t *testing.T) {
 	if job.Status != string(JobCancelled) {
 		t.Fatalf("job status = %q, want %q", job.Status, JobCancelled)
 	}
-	if job.Attempt != 1 {
+	if job.Attempt != 2 {
 		t.Fatalf("job attempt = %d, want retry attempt recorded before cancellation", job.Attempt)
 	}
 }

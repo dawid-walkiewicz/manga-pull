@@ -22,6 +22,15 @@ import (
 func main() {
 	common.InitEnv()
 
+	configManager, err := common.NewConfigManager(filepath.Join(common.DataDir, "config.json"))
+	if err != nil {
+		log.Fatalf("error during config initialization: %v", err)
+	}
+	err = configManager.Load()
+	if err != nil {
+		log.Fatalf("error during config loading: %v", err)
+	}
+
 	ctx := context.Background()
 	database, err := db.Open(ctx, filepath.Join(common.DataDir, "database.db"))
 	if err != nil {
@@ -37,10 +46,10 @@ func main() {
 		log.Printf("plugin manager start: %v", err)
 	}
 
-	titleManager := services.NewTitleManager(dbStore, pluginManager)
+	titleManager := services.NewTitleManager(dbStore, pluginManager, configManager)
 
 	jobRunner := jobs.NewRunner(dbStore, titleManager)
-	jobWorker := jobs.NewWorker(dbStore, jobRunner)
+	jobWorker := jobs.NewWorker(dbStore, jobRunner, configManager)
 	go jobWorker.Run(ctx)
 
 	r := chi.NewRouter()

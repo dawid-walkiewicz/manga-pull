@@ -523,6 +523,7 @@ func (s *Store) ClaimNextJob(ctx context.Context) (*Job, error) {
 		SET
 			status = 'running',
 			progress = '0',
+			attempt = '1',
 			started_at = ?
     	WHERE id = ?
      		AND status = 'queued'
