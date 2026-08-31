@@ -24,7 +24,7 @@ func NewRunner(store JobStore, titleManager *services.TitleManager) *Runner {
 
 func (r *Runner) Execute(ctx context.Context, job *db.Job) error {
 	switch job.JobType {
-	case string(JobRefreshTitle):
+	case JobRefreshTitle:
 		if job.SavedTitleID == nil {
 			return errors.New("refresh_title job missing saved_title_id")
 		}
@@ -42,8 +42,8 @@ func (r *Runner) Execute(ctx context.Context, job *db.Job) error {
 		downloadJobs := make([]db.Job, 0, len(result.NewChapters))
 		for _, chapter := range result.NewChapters {
 			job := db.Job{
-				JobType:      string(JobDownloadChapter),
-				Status:       string(JobQueued),
+				JobType:      JobDownloadChapter,
+				Status:       JobQueued,
 				SavedTitleID: &title.ID,
 				ChapterID:    &chapter.ID,
 				CreatedAt:    time.Now().UTC(),
@@ -54,7 +54,7 @@ func (r *Runner) Execute(ctx context.Context, job *db.Job) error {
 		}
 		return nil
 
-	case string(JobDownloadChapter):
+	case JobDownloadChapter:
 		return errors.New("download_chapter not implemented")
 
 	default:

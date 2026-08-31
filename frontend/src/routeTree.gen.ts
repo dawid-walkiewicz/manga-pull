@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as JobsRouteImport } from './routes/jobs'
 import { Route as PluginsRouteImport } from './routes/plugins'
 import { Route as BrowseIndexRouteImport } from './routes/browse/index'
 import { Route as LibraryIndexRouteImport } from './routes/library/index'
@@ -20,6 +21,11 @@ import { Route as BrowsePluginIdTitleIdRouteImport } from './routes/browse/$plug
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JobsRoute = JobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PluginsRoute = PluginsRouteImport.update({
@@ -55,6 +61,7 @@ const BrowsePluginIdTitleIdRoute = BrowsePluginIdTitleIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/jobs': typeof JobsRoute
   '/plugins': typeof PluginsRoute
   '/library/$titleId': typeof LibraryTitleIdRoute
   '/browse/': typeof BrowseIndexRoute
@@ -64,6 +71,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/jobs': typeof JobsRoute
   '/plugins': typeof PluginsRoute
   '/library/$titleId': typeof LibraryTitleIdRoute
   '/browse': typeof BrowseIndexRoute
@@ -74,6 +82,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/jobs': typeof JobsRoute
   '/plugins': typeof PluginsRoute
   '/library/$titleId': typeof LibraryTitleIdRoute
   '/browse/': typeof BrowseIndexRoute
@@ -85,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/jobs'
     | '/plugins'
     | '/library/$titleId'
     | '/browse/'
@@ -94,6 +104,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/jobs'
     | '/plugins'
     | '/library/$titleId'
     | '/browse'
@@ -103,6 +114,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/jobs'
     | '/plugins'
     | '/library/$titleId'
     | '/browse/'
@@ -113,6 +125,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  JobsRoute: typeof JobsRoute
   PluginsRoute: typeof PluginsRoute
   LibraryTitleIdRoute: typeof LibraryTitleIdRoute
   BrowseIndexRoute: typeof BrowseIndexRoute
@@ -128,6 +141,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jobs': {
+      id: '/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof JobsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/plugins': {
@@ -177,6 +197,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  JobsRoute: JobsRoute,
   PluginsRoute: PluginsRoute,
   LibraryTitleIdRoute: LibraryTitleIdRoute,
   BrowseIndexRoute: BrowseIndexRoute,

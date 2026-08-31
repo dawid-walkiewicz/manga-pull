@@ -2,23 +2,19 @@ package jobs
 
 import "errors"
 
-type JobStatus string
-
 const (
-	JobQueued    JobStatus = "queued"
-	JobRunning   JobStatus = "running"
-	JobPaused    JobStatus = "paused"
-	JobRetrying  JobStatus = "retrying"
-	JobCompleted JobStatus = "completed"
-	JobFailed    JobStatus = "failed"
-	JobCancelled JobStatus = "cancelled"
+	JobQueued    string = "queued"
+	JobRunning   string = "running"
+	JobPaused    string = "paused"
+	JobRetrying  string = "retrying"
+	JobCompleted string = "completed"
+	JobFailed    string = "failed"
+	JobCancelled string = "cancelled"
 )
 
-type JobType string
-
 const (
-	JobRefreshTitle    JobType = "refresh_title"
-	JobDownloadChapter JobType = "download_chapter"
+	JobRefreshTitle    string = "refresh_title"
+	JobDownloadChapter string = "download_chapter"
 )
 
 var (

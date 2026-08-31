@@ -563,6 +563,14 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) 
 	var query string
 
 	switch jobStatus.Status {
+	case "queued":
+		query = `
+				UPDATE jobs
+				SET
+					status = :status
+				WHERE id = :id
+					AND status = 'paused'
+		`
 	case "running":
 		query = `
 				UPDATE jobs
@@ -579,6 +587,7 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) 
 					status = :status,
 					progress = :progress
 				WHERE id = :id
+					AND status IN ('queued', 'running', 'retrying')
 			`
 	case "retrying":
 		query = `
@@ -587,6 +596,7 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) 
 					status = :status,
 					attempt = :attempt
 				WHERE id = :id
+					AND status = 'running'
 			`
 	case "completed":
 		query = `
@@ -619,6 +629,48 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) 
 	default:
 		return nil, fmt.Errorf("unsupported job status: %q", jobStatus.Status)
 	}
+
+	result, err := s.db.NamedExecContext(ctx, query, jobStatus)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows != 1 {
+		return nil, ErrNotFound
+	}
+
+	var updated Job
+	err = s.db.GetContext(ctx, &updated,
+		`
+		SELECT *
+		FROM jobs
+		WHERE id = ?
+		`, jobStatus.ID,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &updated, nil
+}
+
+func (s *Store) RetryJob(ctx context.Context, jobStatus JobStatusUpdate) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			status = :status,
+			attempt = :attempt,
+			progress = :progress,
+			error_message = :error_message,
+			finished_at = :finished_at
+		WHERE id = :id
+			 AND status IN ('failed', 'cancelled')
+	`
 
 	result, err := s.db.NamedExecContext(ctx, query, jobStatus)
 	if err != nil {

@@ -3,9 +3,9 @@ import { RotateCw } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
 import {
-	API_BASE_URL,
 	disablePlugin,
 	enablePlugin,
+	getPluginIconUrl,
 	listPlugins,
 	scanPlugins,
 } from "#/lib/api";
@@ -27,7 +27,7 @@ function PluginsPage() {
 				<div className="flex flex-row justify-between p-2" key={plugin.id}>
 					<div className="flex flex-row gap-4 items-center">
 						<img
-							src={`${API_BASE_URL}/api/plugins/${plugin.id}/icon`}
+							src={getPluginIconUrl(plugin.id)}
 							alt={`${plugin.name} icon`}
 							className="size-8"
 						/>

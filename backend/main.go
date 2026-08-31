@@ -116,8 +116,14 @@ func main() {
 
 	r.Get("/api/jobs", handlers.ListJobsHandler(dbStore))
 	// r.Get("/api/jobs/watch", handlers.WatchJobsHandler(dbStore))
-	r.Post("/api/jobs/{jobId}/cancel", handlers.CancelJobHandler(dbStore, jobWorker))
-	// r.Post("/api/jobs/{jobId}/pause", handlers.PauseJobHandler(jobWorker))
+	r.Route("/api/jobs/{jobId}", func(r chi.Router) {
+		r.Use(handlers.JobMiddleware(dbStore))
+
+		r.Post("/cancel", handlers.CancelJobHandler(dbStore, jobWorker))
+		r.Post("/pause", handlers.PauseJobHandler(dbStore, jobWorker))
+		r.Post("/resume", handlers.ResumeJobHandler(dbStore))
+		r.Post("/retry", handlers.RetryJobHandler(dbStore))
+	})
 	r.Post("/api/jobs/refresh/{titleId}", handlers.RefreshPluginTitleJobHandler(dbStore))
 
 	app_port := fmt.Sprintf(":%d", common.AppPort)

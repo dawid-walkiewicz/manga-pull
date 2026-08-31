@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { BookOpen, Compass, Plug } from "lucide-react";
+import { BookOpen, Compass, Plug, ScrollText } from "lucide-react";
 import {
 	Sidebar,
 	SidebarContent,
@@ -17,6 +17,7 @@ const navigationItems = [
 	{ title: "Library", to: "/library", icon: BookOpen },
 	{ title: "Browse", to: "/browse", icon: Compass },
 	{ title: "Plugins", to: "/plugins", icon: Plug },
+	{ title: "Jobs", to: "/jobs", icon: ScrollText },
 ] as const;
 
 export function AppSidebar() {
