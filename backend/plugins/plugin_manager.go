@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"main/db"
 )
@@ -98,6 +99,8 @@ func (m *PluginManager) Start(ctx context.Context) error {
 		return err
 	}
 
+	var startErrs []error
+
 	for i := range m.plugins {
 		plugin := &m.plugins[i]
 
@@ -107,17 +110,21 @@ func (m *PluginManager) Start(ctx context.Context) error {
 
 		runtime, err := NewRuntime(plugin)
 		if err != nil {
-			return fmt.Errorf(
+			errMsg := err.Error()
+			plugin.Error = &errMsg
+			startErrs = append(startErrs, fmt.Errorf(
 				"start plugin %q: %w",
 				plugin.ID,
 				err,
-			)
+			))
+			continue
 		}
 
+		plugin.Error = nil
 		m.runtimes.Register(runtime)
 	}
 
-	return nil
+	return errors.Join(startErrs...)
 }
 
 func (m *PluginManager) Enable(ctx context.Context, id string) error {
@@ -130,8 +137,14 @@ func (m *PluginManager) Enable(ctx context.Context, id string) error {
 		return nil
 	}
 
+	if plugin.Error != nil {
+		return fmt.Errorf("%w: %s", ErrPluginRuntime, *plugin.Error)
+	}
+
 	runtime, err := NewRuntime(plugin)
 	if err != nil {
+		errMsg := err.Error()
+		plugin.Error = &errMsg
 		return fmt.Errorf("%w: %v", ErrPluginRuntime, err)
 	}
 
@@ -183,6 +196,10 @@ func (m *PluginManager) Runtime(id string) (*PluginRuntime, error) {
 
 	if !plugin.Enabled {
 		return nil, ErrPluginDisabled
+	}
+
+	if plugin.Error != nil {
+		return nil, fmt.Errorf("%w: %s", ErrPluginRuntime, *plugin.Error)
 	}
 
 	return nil, ErrPluginRuntime

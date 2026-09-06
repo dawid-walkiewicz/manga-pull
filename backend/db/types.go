@@ -36,7 +36,7 @@ func (s StringList) Value() (driver.Value, error) {
 type JobStatusUpdate struct {
 	ID           int64      `db:"id"`
 	Status       string     `db:"status"`
-	Attempt      *int       `db:"attempt"`
+	Retries      *int       `db:"retries"`
 	Progress     *string    `db:"progress"`
 	ErrorMessage *string    `db:"error_message"`
 	StartedAt    *time.Time `db:"started_at"`

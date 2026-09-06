@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"main/db"
-	"main/jobs"
 	"net/http"
 	"strconv"
 	"time"
+
+	"main/db"
+	"main/jobs"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -108,6 +109,7 @@ func ResumeJobHandler(store *db.Store) http.HandlerFunc {
 			WriteError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
+		jobs.LogJob(r.Context(), store, job.ID, jobs.Info, "resuming job")
 
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -130,16 +132,11 @@ func RetryJobHandler(store *db.Store) http.HandlerFunc {
 			return
 		}
 
-		attempt := job.Attempt - 1
-		if attempt < 0 {
-			attempt = 0
-		}
 		progress := "0"
 		errorMessage := ""
 		update := db.JobStatusUpdate{
 			ID:           job.ID,
 			Status:       jobs.JobQueued,
-			Attempt:      &attempt,
 			Progress:     &progress,
 			ErrorMessage: &errorMessage,
 			FinishedAt:   nil,
@@ -149,6 +146,7 @@ func RetryJobHandler(store *db.Store) http.HandlerFunc {
 			WriteError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
+		jobs.LogJob(r.Context(), store, job.ID, jobs.Info, "retrying job")
 
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -176,11 +174,18 @@ func RefreshPluginTitleJobHandler(store *db.Store) http.HandlerFunc {
 			return
 		}
 
+		payload, err := json.Marshal(jobs.RefreshTitlePayload{
+			SavedTitleID: id,
+		})
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
 		refreshJob := db.Job{
-			JobType:      jobs.JobRefreshTitle,
-			Status:       jobs.JobQueued,
-			SavedTitleID: &id,
-			CreatedAt:    time.Now().UTC(),
+			JobType:   jobs.RefreshTitle,
+			Status:    jobs.JobQueued,
+			Payload:   payload,
+			CreatedAt: time.Now().UTC(),
 		}
 
 		_, err = store.CreateJob(r.Context(), refreshJob)

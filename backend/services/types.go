@@ -16,3 +16,9 @@ type RefreshTitleResult struct {
 	Title       models.SavedTitle
 	NewChapters []db.Chapter
 }
+
+type ChapterDownload struct {
+	Descriptor    plugins.ChapterDescriptor
+	Name          string
+	DirectoryName string
+}

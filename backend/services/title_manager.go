@@ -8,6 +8,8 @@ import (
 	"main/db"
 	"main/models"
 	"main/plugins"
+	"strings"
+	"text/template"
 	"time"
 )
 
@@ -114,56 +116,55 @@ func (m *TitleManager) SaveTitle(
 
 func (m *TitleManager) RefreshTitle(
 	ctx context.Context,
-	pluginID string,
-	remoteID string,
+	titleID int64,
 ) (*RefreshTitleResult, error) {
-	plugin, err := m.pluginManager.Runtime(pluginID)
+	title, err := m.store.GetSavedTitle(ctx, titleID)
 	if err != nil {
 		return nil, err
 	}
 
-	dbTitle, err := m.store.FindSavedTitle(ctx, pluginID, remoteID)
+	plugin, err := m.pluginManager.Runtime(title.PluginID)
 	if err != nil {
 		return nil, err
 	}
 
-	title, err := plugin.GetTitle(remoteID)
+	pluginTitle, err := plugin.GetTitle(title.RemoteID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", plugins.ErrPluginFailedFetch, err)
 	}
 
 	now := time.Now().UTC()
-	dbTitle.Title = title.Title
-	dbTitle.AlternativeTitles = title.AlternativeTitles
-	dbTitle.Author = title.Author
-	dbTitle.Artist = title.Artist
-	dbTitle.Status = title.Status
-	dbTitle.Description = title.Description
-	dbTitle.Cover = title.Cover
-	dbTitle.URL = title.URL
-	dbTitle.LastRefreshedAt = &now
+	title.Title = pluginTitle.Title
+	title.AlternativeTitles = pluginTitle.AlternativeTitles
+	title.Author = pluginTitle.Author
+	title.Artist = pluginTitle.Artist
+	title.Status = pluginTitle.Status
+	title.Description = pluginTitle.Description
+	title.Cover = pluginTitle.Cover
+	title.URL = pluginTitle.URL
+	title.LastRefreshedAt = &now
 
-	var refreshedChapters = make([]db.Chapter, 0, len(title.Chapters))
-	for _, c := range title.Chapters {
-		refreshedChapters = append(refreshedChapters, c.ConvertToModel(dbTitle.ID))
+	var refreshedChapters = make([]db.Chapter, 0, len(pluginTitle.Chapters))
+	for _, c := range pluginTitle.Chapters {
+		refreshedChapters = append(refreshedChapters, c.ConvertToModel(title.ID))
 	}
 
 	config := m.configManager.Get()
 
 	var oldChapters []db.Chapter
 	if config.IgnoreReuploads {
-		oldChapters, err = m.store.ListChapters(ctx, dbTitle.ID)
+		oldChapters, err = m.store.ListChapters(ctx, title.ID)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	newChapters, err := m.store.RefreshTitle(ctx, dbTitle, refreshedChapters)
+	newChapters, err := m.store.RefreshTitle(ctx, title, refreshedChapters)
 	if err != nil {
 		return nil, err
 	}
 
-	chapters, err := m.store.ListChapters(ctx, dbTitle.ID)
+	chapters, err := m.store.ListChapters(ctx, title.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +175,7 @@ func (m *TitleManager) RefreshTitle(
 	}
 
 	return &RefreshTitleResult{
-		Title:       models.ConvertSavedTitle(dbTitle, chapters),
+		Title:       models.ConvertSavedTitle(title, chapters),
 		NewChapters: outChapters,
 	}, nil
 }
@@ -197,4 +198,65 @@ func filterNewChapters(old, incoming []db.Chapter) []db.Chapter {
 	}
 
 	return result
+}
+
+func (m *TitleManager) BeginChapterDownload(
+	ctx context.Context,
+	chapterID int64,
+) (*ChapterDownload, error) {
+	chapter, err := m.store.GetChapter(ctx, chapterID)
+	if err != nil {
+		return nil, err
+	}
+
+	title, err := m.store.GetSavedTitle(ctx, chapter.SavedTitleID)
+	if err != nil {
+		return nil, err
+	}
+
+	plugin, err := m.pluginManager.Runtime(title.PluginID)
+	if err != nil {
+		return nil, err
+	}
+
+	chapterDesc, err := plugin.GetChapter(chapter.RemoteID)
+	if err != nil {
+		return nil, err
+	}
+
+	nameTmpl, err := template.New("name").Parse(title.ChapterNameTemplate)
+	if err != nil {
+		return nil, err
+	}
+	var builder strings.Builder
+
+	templateData := map[string]any{
+		"number": chapter.Number,
+		"volume": chapter.Volume,
+		"season": chapter.Season,
+		"group":  chapter.GroupName,
+	}
+	err = nameTmpl.Execute(&builder, templateData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChapterDownload{
+		Descriptor:    *chapterDesc,
+		Name:          builder.String(),
+		DirectoryName: title.DirectoryName,
+	}, nil
+}
+
+func (m *TitleManager) MarkChapterDownloaded(
+	ctx context.Context,
+	chapterID int64,
+) error {
+	chapter, err := m.store.GetChapter(ctx, chapterID)
+	if err != nil {
+		return err
+	}
+
+	chapter.Downloaded = true
+	return m.store.UpdateChapter(ctx, chapter)
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -29,7 +30,6 @@ func (s *Store) GetSavedTitle(ctx context.Context, id int64) (SavedTitle, error)
 		`,
 		id,
 	)
-
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return SavedTitle{}, ErrNotFound
@@ -52,7 +52,6 @@ func (s *Store) FindSavedTitle(ctx context.Context, pluginID string, remoteID st
 		`,
 		pluginID, remoteID,
 	)
-
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return SavedTitle{}, ErrNotFound
@@ -73,7 +72,6 @@ func (s *Store) ListSavedTitles(ctx context.Context) ([]SavedTitle, error) {
 		FROM saved_titles
 		`,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +120,6 @@ func (s *Store) SaveTitle(ctx context.Context, title SavedTitle, chapters []Chap
 			:last_refreshed_at
 		)
 	`, title)
-
 	if err != nil {
 		return 0, err
 	}
@@ -205,12 +202,63 @@ func (s *Store) ListChapters(ctx context.Context, savedTitleID int64) ([]Chapter
 		ORDER BY published_at DESC;
 		`, savedTitleID,
 	)
-
 	if err != nil {
 		return nil, err
 	}
 
 	return chapters, nil
+}
+
+func (s *Store) GetChapter(ctx context.Context, id int64) (Chapter, error) {
+	var chapter Chapter
+
+	err := s.db.GetContext(ctx, &chapter,
+		`
+		SELECT *
+		FROM chapters
+		WHERE id = ?
+		`,
+		id,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Chapter{}, ErrNotFound
+		}
+
+		return Chapter{}, err
+	}
+
+	return chapter, nil
+}
+
+func (s *Store) UpdateChapter(ctx context.Context, chapter Chapter) error {
+	result, err := s.db.NamedExecContext(ctx, `
+		UPDATE chapters
+		SET
+			remote_id = :remote_id,
+			number = :number,
+			volume = :volume,
+			season = :season,
+			title = :title,
+			group_name = :group_name,
+			url = :url,
+			published_at = :published_at,
+			downloaded = :downloaded
+		WHERE id = :id
+		`, chapter)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("chapter %d could not be updated", chapter.ID)
+	}
+
+	return nil
 }
 
 func (s *Store) RefreshTitle(ctx context.Context, title SavedTitle, incoming []Chapter) ([]Chapter, error) {
@@ -234,7 +282,6 @@ func (s *Store) RefreshTitle(ctx context.Context, title SavedTitle, incoming []C
 			last_refreshed_at = :last_refreshed_at
 		WHERE id = :id;
 	`, title)
-
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +415,6 @@ func (s *Store) ListPlugins(ctx context.Context) ([]PluginRecord, error) {
 		FROM plugins
 		`,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +447,6 @@ func (s *Store) CreatePlugins(ctx context.Context, plugins []PluginRecord) error
       `
 
 	_, err := s.db.NamedExecContext(ctx, query, plugins)
-
 	if err != nil {
 		return err
 	}
@@ -417,7 +462,6 @@ func (s *Store) SetPluginEnabled(ctx context.Context, id string, enabled bool) e
       `
 
 	_, err := s.db.ExecContext(ctx, query, enabled, id)
-
 	if err != nil {
 		return err
 	}
@@ -436,7 +480,6 @@ func (s *Store) GetJob(ctx context.Context, id int64) (Job, error) {
 		`,
 		id,
 	)
-
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Job{}, ErrNotFound
@@ -457,7 +500,6 @@ func (s *Store) ListJobs(ctx context.Context) ([]Job, error) {
 		FROM jobs
 		`,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -465,20 +507,40 @@ func (s *Store) ListJobs(ctx context.Context) ([]Job, error) {
 	return jobs, nil
 }
 
+func (s *Store) CreateJobs(ctx context.Context, jobs []Job) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	_, err := s.db.NamedExecContext(ctx, `
+			INSERT INTO jobs (
+				job_type,
+				status,
+				payload,
+				created_at
+			)
+			VALUES (
+				:job_type,
+				:status,
+				:payload,
+				:created_at
+			)
+		`, jobs)
+	return err
+}
+
 func (s *Store) CreateJob(ctx context.Context, job Job) (int64, error) {
 	query := `
 		INSERT INTO jobs (
 			job_type,
 			status,
-			saved_title_id,
-			chapter_id,
+			payload,
 			created_at
 		)
 		VALUES (
 			:job_type,
 			:status,
-			:saved_title_id,
-			:chapter_id,
+			:payload,
 			:created_at
 		)
       `
@@ -523,7 +585,6 @@ func (s *Store) ClaimNextJob(ctx context.Context) (*Job, error) {
 		SET
 			status = 'running',
 			progress = '0',
-			attempt = '1',
 			started_at = ?
     	WHERE id = ?
      		AND status = 'queued'
@@ -594,9 +655,9 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) 
 				UPDATE jobs
 				SET
 					status = :status,
-					attempt = :attempt
+					retries = :retries
 				WHERE id = :id
-					AND status = 'running'
+					AND status IN ('running', 'retrying')
 			`
 	case "completed":
 		query = `
@@ -639,8 +700,19 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) 
 	if err != nil {
 		return nil, err
 	}
-	if rows != 1 {
-		return nil, ErrNotFound
+	if rows == 0 {
+		var currentStatus string
+
+		err := s.db.GetContext(ctx, &currentStatus, "SELECT status FROM jobs WHERE id = ?", jobStatus.ID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("%w: cannot change status from %q to %q (job ID: %v)", ErrInvalidStateTransition,
+			currentStatus, jobStatus.Status, jobStatus.ID)
 	}
 
 	var updated Job
@@ -651,7 +723,6 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) 
 		WHERE id = ?
 		`, jobStatus.ID,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -664,7 +735,6 @@ func (s *Store) RetryJob(ctx context.Context, jobStatus JobStatusUpdate) (*Job, 
 		UPDATE jobs
 		SET
 			status = :status,
-			attempt = :attempt,
 			progress = :progress,
 			error_message = :error_message,
 			finished_at = :finished_at
@@ -681,8 +751,19 @@ func (s *Store) RetryJob(ctx context.Context, jobStatus JobStatusUpdate) (*Job, 
 	if err != nil {
 		return nil, err
 	}
-	if rows != 1 {
-		return nil, ErrNotFound
+	if rows == 0 {
+		var currentStatus string
+
+		err := s.db.GetContext(ctx, &currentStatus, "SELECT status FROM jobs WHERE id = ?", jobStatus.ID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("%w: cannot change status from %q to %q (job ID: %v)", ErrInvalidStateTransition,
+			currentStatus, jobStatus.Status, jobStatus.ID)
 	}
 
 	var updated Job
@@ -693,10 +774,25 @@ func (s *Store) RetryJob(ctx context.Context, jobStatus JobStatusUpdate) (*Job, 
 		WHERE id = ?
 		`, jobStatus.ID,
 	)
-
 	if err != nil {
 		return nil, err
 	}
 
 	return &updated, nil
+}
+
+func (s *Store) AddJobLog(ctx context.Context, jobID int64, level, message string) error {
+	query := `INSERT INTO job_logs (job_id, level, message, created_at) VALUES (?, ?, ?, ?)`
+	result, err := s.db.ExecContext(ctx, query, jobID, level, message, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows < 1 {
+		log.Println("log not inserted, but no error")
+	}
+	return nil
 }

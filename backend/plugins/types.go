@@ -3,10 +3,7 @@ package plugins
 import (
 	"errors"
 	"main/db"
-	"sync"
 	"time"
-
-	"github.com/dop251/goja"
 )
 
 var (
@@ -29,22 +26,9 @@ type Manifest struct {
 type Plugin struct {
 	Manifest
 
-	Path    string `json:"path"`
-	Enabled bool   `json:"enabled"`
-}
-
-type PluginRuntime struct {
-	Plugin *Plugin
-
-	vm     *goja.Runtime
-	client *PluginAPIClient
-
-	mu sync.Mutex
-
-	search          goja.Callable
-	browse          goja.Callable
-	getTitle        goja.Callable
-	downloadChapter goja.Callable
+	Path    string  `json:"path"`
+	Enabled bool    `json:"enabled"`
+	Error   *string `json:"error"`
 }
 
 type TitleSummary struct {
@@ -91,4 +75,14 @@ func (c *Chapter) ConvertToModel(titleId int64) db.Chapter {
 		PublishedAt:  c.PublishedAt,
 		Downloaded:   false,
 	}
+}
+
+type PageDescriptor struct {
+	Id       string         `json:"id"`
+	Url      string         `json:"url"`
+	Metadata map[string]any `json:"metadata"`
+}
+
+type ChapterDescriptor struct {
+	Pages []PageDescriptor `json:"pages"`
 }

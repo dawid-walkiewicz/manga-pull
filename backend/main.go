@@ -100,8 +100,9 @@ func main() {
 	})
 
 	r.Get("/api/titles", handlers.ListTitlesHandler(dbStore))
-	r.Get("/api/titles/{id}", handlers.GetTitleHandler(dbStore))
-	r.Delete("/api/titles/{id}", handlers.DeleteTitleHandler(dbStore))
+	r.Get("/api/titles/{titleId}", handlers.GetTitleHandler(dbStore))
+	r.Delete("/api/titles/{titleId}", handlers.DeleteTitleHandler(dbStore))
+	r.Post("/api/titles/{titleId}/refresh", handlers.RefreshTitleHandler(titleManager))
 
 	r.Get("/api/plugins", handlers.ListPluginsHandler(pluginManager))
 	r.Post("/api/plugins/scan", handlers.ScanPluginsHandler(pluginManager))
@@ -112,7 +113,6 @@ func main() {
 	r.Get("/api/plugins/{pluginId}/titles", handlers.BrowsePluginTitlesHandler(pluginManager))
 	r.Get("/api/plugins/{pluginId}/titles/{titleId}", handlers.GetPluginTitleHandler(titleManager))
 	r.Post("/api/plugins/{pluginId}/titles/{titleId}/save", handlers.SavePluginTitleHandler(titleManager))
-	r.Post("/api/plugins/{pluginId}/titles/{titleId}/refresh", handlers.RefreshPluginTitleHandler(titleManager))
 
 	r.Get("/api/jobs", handlers.ListJobsHandler(dbStore))
 	// r.Get("/api/jobs/watch", handlers.WatchJobsHandler(dbStore))
@@ -125,6 +125,8 @@ func main() {
 		r.Post("/retry", handlers.RetryJobHandler(dbStore))
 	})
 	r.Post("/api/jobs/refresh/{titleId}", handlers.RefreshPluginTitleJobHandler(dbStore))
+
+	r.Post("/api/chapters/{chapterId}/download", handlers.DownloadChapterHandler(dbStore))
 
 	app_port := fmt.Sprintf(":%d", common.AppPort)
 	log.Printf("server listening on %s", app_port)

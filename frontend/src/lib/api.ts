@@ -18,6 +18,7 @@ export type PluginManifest = {
 export type Plugin = PluginManifest & {
 	path: string;
 	enabled: boolean;
+	error: string | null;
 };
 
 export type PluginTitleSummary = {
@@ -108,13 +109,22 @@ export type JobStatus =
 
 export type JobType = "refresh_title" | "download_chapter";
 
+export type RefreshTitleJobPayload = {
+	savedTitleId: number;
+};
+
+export type DownloadChapterJobPayload = {
+	chapterId: number;
+};
+
+export type JobPayload = RefreshTitleJobPayload | DownloadChapterJobPayload;
+
 export type Job = {
 	id: number;
 	jobType: JobType | string;
 	status: JobStatus | string;
-	savedTitleId: number | null;
-	chapterId: number | null;
-	attempt: number;
+	payload: JobPayload | Record<string, unknown>;
+	retries: number;
 	progress: string;
 	errorMessage: string | null;
 	createdAt: string;
@@ -178,6 +188,12 @@ export function deleteTitle(id: number): Promise<void> {
 	return apiRequest(`/api/titles/${encodePathPart(id)}`, { method: "DELETE" });
 }
 
+export function refreshTitle(id: number): Promise<SavedTitleDetails> {
+	return apiRequest(`/api/titles/${encodePathPart(id)}/refresh`, {
+		method: "POST",
+	});
+}
+
 export function listPlugins(): Promise<Plugin[]> {
 	return apiRequest("/api/plugins");
 }
@@ -233,16 +249,6 @@ export function savePluginTitle(
 	);
 }
 
-export function refreshPluginTitle(
-	pluginId: string,
-	titleId: string,
-): Promise<SavedTitleDetails> {
-	return apiRequest(
-		`/api/plugins/${encodePathPart(pluginId)}/titles/${encodePathPart(titleId)}/refresh`,
-		{ method: "POST" },
-	);
-}
-
 export function listJobs(): Promise<Job[]> {
 	return apiRequest("/api/jobs");
 }
@@ -273,6 +279,12 @@ export function retryJob(jobId: number): Promise<void> {
 
 export function queueTitleRefresh(titleId: number): Promise<void> {
 	return apiRequest(`/api/jobs/refresh/${encodePathPart(titleId)}`, {
+		method: "POST",
+	});
+}
+
+export function downloadChapter(chapterId: number): Promise<void> {
+	return apiRequest(`/api/chapters/${encodePathPart(chapterId)}/download`, {
 		method: "POST",
 	});
 }

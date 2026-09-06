@@ -1,33 +1,41 @@
 package plugins
 
 import (
-	"archive/zip"
 	"fmt"
-	"io"
 	"log"
+	"sync"
 
 	"github.com/dop251/goja"
 )
 
-func LoadPluginCode(plugin *Plugin) ([]byte, error) {
-	r, err := zip.OpenReader(plugin.Path)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
+const (
+	FuncSearch      = "search"
+	FuncBrowse      = "browse"
+	FuncGetTitle    = "getTitle"
+	FuncGetChapter  = "getChapter"
+	FuncProcessPage = "processPage"
+)
 
-	mainFile, err := r.Open("main.js")
-	if err != nil {
-		return nil, err
-	}
-	defer mainFile.Close()
+var RequiredFunctions = []string{
+	FuncSearch,
+	FuncBrowse,
+	FuncGetTitle,
+	FuncGetChapter,
+}
 
-	code, err := io.ReadAll(mainFile)
-	if err != nil {
-		return nil, err
-	}
+type PluginRuntime struct {
+	Plugin *Plugin
 
-	return code, nil
+	vm     *goja.Runtime
+	client *PluginAPIClient
+
+	mu sync.Mutex
+
+	search      goja.Callable
+	browse      goja.Callable
+	getTitle    goja.Callable
+	getChapter  goja.Callable
+	processPage goja.Callable
 }
 
 func NewRuntime(plugin *Plugin) (*PluginRuntime, error) {
@@ -58,7 +66,7 @@ func NewRuntime(plugin *Plugin) (*PluginRuntime, error) {
 		client: client,
 	}
 
-	search, ok := goja.AssertFunction(vm.Get("search"))
+	search, ok := goja.AssertFunction(vm.Get(FuncSearch))
 	if !ok {
 		log.Println("search not found")
 		return nil, fmt.Errorf("plugin %q: search function not found", plugin.ID)
@@ -66,26 +74,138 @@ func NewRuntime(plugin *Plugin) (*PluginRuntime, error) {
 
 	runtime.search = search
 
-	browse, ok := goja.AssertFunction(vm.Get("browse"))
+	browse, ok := goja.AssertFunction(vm.Get(FuncBrowse))
 	if !ok {
 		log.Println("browse not found")
 		return nil, fmt.Errorf("plugin %q: browse function not found", plugin.ID)
 	}
 	runtime.browse = browse
 
-	getTitle, ok := goja.AssertFunction(vm.Get("getTitle"))
+	getTitle, ok := goja.AssertFunction(vm.Get(FuncGetTitle))
 	if !ok {
 		log.Println("getTitle not found")
 		return nil, fmt.Errorf("plugin %q: getTitle function not found", plugin.ID)
 	}
 	runtime.getTitle = getTitle
 
-	downloadChapter, ok := goja.AssertFunction(vm.Get("downloadChapter"))
+	getChapter, ok := goja.AssertFunction(vm.Get(FuncGetChapter))
 	if !ok {
-		log.Println("downloadChapter not found")
-		return nil, fmt.Errorf("plugin %q: downloadChapter function not found", plugin.ID)
+		log.Println("getChapter not found")
+		return nil, fmt.Errorf("plugin %q: getChapter function not found", plugin.ID)
 	}
-	runtime.downloadChapter = downloadChapter
+	runtime.getChapter = getChapter
+
+	processPage, ok := goja.AssertFunction(vm.Get(FuncProcessPage))
+	runtime.processPage = processPage
 
 	return &runtime, nil
+}
+
+func (p *PluginRuntime) Search(query string) ([]TitleSummary, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result, err := p.search(
+		goja.Undefined(),
+		p.vm.ToValue(query),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var titles []TitleSummary
+	err = p.vm.ExportTo(result, &titles)
+	if err != nil {
+		return nil, err
+	}
+
+	return titles, nil
+}
+
+func (p *PluginRuntime) Browse() ([]TitleSummary, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result, err := p.browse(goja.Undefined())
+	if err != nil {
+		return nil, err
+	}
+
+	var titles []TitleSummary
+	err = p.vm.ExportTo(result, &titles)
+	if err != nil {
+		return nil, err
+	}
+
+	return titles, nil
+}
+
+func (p *PluginRuntime) GetTitle(id string) (*TitleDetails, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result, err := p.getTitle(
+		goja.Undefined(),
+		p.vm.ToValue(id),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var title TitleDetails
+	err = p.vm.ExportTo(result, &title)
+	if err != nil {
+		return nil, err
+	}
+
+	return &title, nil
+}
+
+func (p *PluginRuntime) GetChapter(chapterID string) (*ChapterDescriptor, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result, err := p.getChapter(
+		goja.Undefined(),
+		p.vm.ToValue(chapterID),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var chapter ChapterDescriptor
+	err = p.vm.ExportTo(result, &chapter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &chapter, nil
+}
+
+func (p *PluginRuntime) ProcessPage(
+	page PageDescriptor,
+	data []byte,
+) ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.processPage == nil {
+		return data, nil
+	}
+
+	result, err := p.processPage(
+		goja.Undefined(),
+		p.vm.ToValue(page),
+		p.vm.ToValue(data),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var processed []byte
+	if err := p.vm.ExportTo(result, &processed); err != nil {
+		return nil, err
+	}
+
+	return processed, nil
 }

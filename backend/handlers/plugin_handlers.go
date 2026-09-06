@@ -188,26 +188,6 @@ func SavePluginTitleHandler(service *services.TitleManager) http.HandlerFunc {
 	}
 }
 
-func RefreshPluginTitleHandler(service *services.TitleManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "pluginId")
-		titleID := chi.URLParam(r, "titleId")
-
-		refreshedTitle, err := service.RefreshTitle(r.Context(), id, titleID)
-		if err != nil {
-			log.Printf("RefreshPluginTitle: %v", err)
-			writePluginServiceError(w, err, "failed to fetch title from plugin")
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(refreshedTitle.Title); err != nil {
-			log.Printf("RefreshPluginTitle: %v", err)
-		}
-	}
-}
-
 func pluginRuntime(
 	service *plugins.PluginManager,
 	id string,

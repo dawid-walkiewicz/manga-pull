@@ -45,7 +45,15 @@ type fakeJobStore struct {
 	job               *db.Job
 	claimErr          error
 	updateErrByStatus map[string]error
+	updateHook        func(db.JobStatusUpdate)
 	updates           []db.JobStatusUpdate
+	logs              []fakeJobLog
+}
+
+type fakeJobLog struct {
+	jobID   int64
+	level   string
+	message string
 }
 
 func (s *fakeJobStore) ClaimNextJob(context.Context) (*db.Job, error) {
@@ -63,8 +71,8 @@ func (s *fakeJobStore) UpdateJobStatus(_ context.Context, status db.JobStatusUpd
 	}
 
 	s.job.Status = status.Status
-	if status.Attempt != nil {
-		s.job.Attempt = *status.Attempt
+	if status.Retries != nil {
+		s.job.Retries = *status.Retries
 	}
 	if status.Progress != nil {
 		s.job.Progress = *status.Progress
@@ -72,9 +80,17 @@ func (s *fakeJobStore) UpdateJobStatus(_ context.Context, status db.JobStatusUpd
 	s.job.ErrorMessage = status.ErrorMessage
 	s.job.StartedAt = status.StartedAt
 	s.job.FinishedAt = status.FinishedAt
+	if s.updateHook != nil {
+		s.updateHook(status)
+	}
 
 	job := *s.job
 	return &job, nil
+}
+
+func (s *fakeJobStore) AddJobLog(_ context.Context, jobID int64, level, message string) error {
+	s.logs = append(s.logs, fakeJobLog{jobID: jobID, level: level, message: message})
+	return nil
 }
 
 func (s *fakeJobStore) GetSavedTitle(context.Context, int64) (db.SavedTitle, error) {
@@ -108,13 +124,13 @@ func newTestWorker(t *testing.T, executor Executor) (*Worker, *db.Store, *sqlx.D
 	return NewWorker(store, executor, testConfig()), store, database
 }
 
-func insertJob(t *testing.T, database *sqlx.DB, jobType, status string, attempt int, createdAt time.Time) int64 {
+func insertJob(t *testing.T, database *sqlx.DB, jobType, status string, retries int, createdAt time.Time) int64 {
 	t.Helper()
 
 	result, err := database.ExecContext(context.Background(), `
-		INSERT INTO jobs (job_type, status, attempt, created_at)
+		INSERT INTO jobs (job_type, status, retries, created_at)
 		VALUES (?, ?, ?, ?)
-	`, jobType, status, attempt, createdAt)
+	`, jobType, status, retries, createdAt)
 	if err != nil {
 		t.Fatalf("insert job: %v", err)
 	}
@@ -149,13 +165,23 @@ func assertStatusSequence(t *testing.T, updates []db.JobStatusUpdate, want ...st
 	}
 }
 
+func assertHasLog(t *testing.T, logs []fakeJobLog, level, message string) {
+	t.Helper()
+	for _, log := range logs {
+		if log.level == level && log.message == message {
+			return
+		}
+	}
+	t.Fatalf("logs do not contain %s %q; logs = %+v", level, message, logs)
+}
+
 func TestClaimNextJobClaimsOldestQueuedJobAndSkipsNonQueuedJobs(t *testing.T) {
 	_, store, database := newTestWorker(t, nil)
 	now := time.Now().UTC()
 
-	insertJob(t, database, JobRefreshTitle, JobRunning, 0, now.Add(-3*time.Minute))
-	newerQueuedID := insertJob(t, database, JobRefreshTitle, JobQueued, 0, now.Add(-1*time.Minute))
-	oldestQueuedID := insertJob(t, database, JobRefreshTitle, JobQueued, 0, now.Add(-2*time.Minute))
+	insertJob(t, database, RefreshTitle, JobRunning, 0, now.Add(-3*time.Minute))
+	newerQueuedID := insertJob(t, database, RefreshTitle, JobQueued, 0, now.Add(-1*time.Minute))
+	oldestQueuedID := insertJob(t, database, RefreshTitle, JobQueued, 0, now.Add(-2*time.Minute))
 
 	claimed, err := store.ClaimNextJob(context.Background())
 	if err != nil {
@@ -183,7 +209,7 @@ func TestCreateJobPersistsCreatedAtProvidedByGoInUTC(t *testing.T) {
 	createdAt := time.Date(2026, 8, 28, 19, 53, 36, 0, time.UTC)
 
 	jobID, err := store.CreateJob(context.Background(), db.Job{
-		JobType:   JobRefreshTitle,
+		JobType:   RefreshTitle,
 		Status:    JobQueued,
 		CreatedAt: createdAt,
 	})
@@ -203,8 +229,8 @@ func TestCreateJobPersistsCreatedAtProvidedByGoInUTC(t *testing.T) {
 func TestClaimNextJobUsesIDAsTieBreakerForSameCreatedAt(t *testing.T) {
 	_, store, database := newTestWorker(t, nil)
 	createdAt := time.Now().UTC()
-	firstID := insertJob(t, database, JobRefreshTitle, JobQueued, 0, createdAt)
-	insertJob(t, database, JobRefreshTitle, JobQueued, 0, createdAt)
+	firstID := insertJob(t, database, RefreshTitle, JobQueued, 0, createdAt)
+	insertJob(t, database, RefreshTitle, JobQueued, 0, createdAt)
 
 	claimed, err := store.ClaimNextJob(context.Background())
 	if err != nil {
@@ -218,7 +244,7 @@ func TestClaimNextJobUsesIDAsTieBreakerForSameCreatedAt(t *testing.T) {
 
 func TestProcessNextReturnsNilWhenThereAreNoQueuedJobs(t *testing.T) {
 	worker, _, database := newTestWorker(t, nil)
-	insertJob(t, database, JobRefreshTitle, JobRunning, 0, time.Now().UTC())
+	insertJob(t, database, RefreshTitle, JobRunning, 0, time.Now().UTC())
 
 	if err := worker.processNext(context.Background()); err != nil {
 		t.Fatalf("process next with no queued jobs: %v", err)
@@ -226,7 +252,7 @@ func TestProcessNextReturnsNilWhenThereAreNoQueuedJobs(t *testing.T) {
 }
 
 func TestProcessNextMarksJobCompletedWhenExecutorSucceeds(t *testing.T) {
-	store := newFakeJobStore(db.Job{ID: 10, Status: JobRunning, Attempt: 0})
+	store := newFakeJobStore(db.Job{ID: 10, Status: JobRunning, Retries: 0})
 	executed := false
 	worker := NewWorker(store, fakeExecutor(func(ctx context.Context, job *db.Job) error {
 		executed = true
@@ -256,11 +282,12 @@ func TestProcessNextMarksJobCompletedWhenExecutorSucceeds(t *testing.T) {
 	if store.job.FinishedAt == nil {
 		t.Fatal("completed job should record finished_at")
 	}
+	assertHasLog(t, store.logs, Info, "job executed successfully")
 }
 
 func TestProcessNextRetriesRetryableFailuresUntilSuccess(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		store := newFakeJobStore(db.Job{ID: 11, Status: JobRunning, Attempt: 0})
+		store := newFakeJobStore(db.Job{ID: 11, Status: JobRunning, Retries: 0})
 		calls := 0
 		worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
 			calls++
@@ -278,8 +305,8 @@ func TestProcessNextRetriesRetryableFailuresUntilSuccess(t *testing.T) {
 			t.Fatalf("executor calls = %d, want 3", calls)
 		}
 		assertStatusSequence(t, store.updates, JobRetrying, JobRetrying, JobCompleted)
-		if store.job.Attempt != 2 {
-			t.Fatalf("job attempt = %d, want 2", store.job.Attempt)
+		if store.job.Retries != 2 {
+			t.Fatalf("job retries = %d, want 2", store.job.Retries)
 		}
 		if store.job.Status != JobCompleted {
 			t.Fatalf("job status = %q, want %q", store.job.Status, JobCompleted)
@@ -288,7 +315,7 @@ func TestProcessNextRetriesRetryableFailuresUntilSuccess(t *testing.T) {
 }
 
 func TestProcessNextDoesNotRetryUnknownJobType(t *testing.T) {
-	store := newFakeJobStore(db.Job{ID: 12, JobType: "unknown", Status: JobRunning, Attempt: 0})
+	store := newFakeJobStore(db.Job{ID: 12, JobType: "unknown", Status: JobRunning, Retries: 0})
 	calls := 0
 	worker := NewWorker(store, fakeExecutor(func(_ context.Context, job *db.Job) error {
 		calls++
@@ -303,20 +330,20 @@ func TestProcessNextDoesNotRetryUnknownJobType(t *testing.T) {
 		t.Fatalf("executor calls = %d, want 1", calls)
 	}
 	assertStatusSequence(t, store.updates, JobFailed)
-	if store.job.Attempt != 0 {
-		t.Fatalf("job attempt = %d, want no retry", store.job.Attempt)
+	if store.job.Retries != 0 {
+		t.Fatalf("job retries = %d, want no retry", store.job.Retries)
 	}
 }
 
 func TestProcessNextMarksJobCancelledWhenExecutorObservesCancellation(t *testing.T) {
-	store := newFakeJobStore(db.Job{ID: 13, Status: JobRunning, Attempt: 0})
-	worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
-		return context.Canceled
+	store := newFakeJobStore(db.Job{ID: 13, Status: JobRunning, Retries: 0})
+	ctx, cancel := context.WithCancelCause(context.Background())
+	worker := NewWorker(store, fakeExecutor(func(execCtx context.Context, _ *db.Job) error {
+		cancel(ErrJobCancelled)
+		<-execCtx.Done()
+		return execCtx.Err()
 	}), testConfig())
 
-	ctx, cancel := context.WithCancelCause(context.Background())
-
-	cancel(ErrJobCancelled)
 	if err := worker.processNext(ctx); err != nil {
 		t.Fatalf("process cancelled job: %v", err)
 	}
@@ -325,16 +352,17 @@ func TestProcessNextMarksJobCancelledWhenExecutorObservesCancellation(t *testing
 	if store.job.Status != JobCancelled {
 		t.Fatalf("job status = %q, want %q", store.job.Status, JobCancelled)
 	}
+	assertHasLog(t, store.logs, Info, "cancelling job")
 }
 
 func TestProcessNextMarksJobPausedWhenExecutorObservesPause(t *testing.T) {
-	store := newFakeJobStore(db.Job{ID: 15, Status: JobRunning, Progress: "42", Attempt: 0})
-	worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
-		return context.Canceled
-	}), testConfig())
-
+	store := newFakeJobStore(db.Job{ID: 15, Status: JobRunning, Progress: "42", Retries: 0})
 	ctx, cancel := context.WithCancelCause(context.Background())
-	cancel(ErrJobPaused)
+	worker := NewWorker(store, fakeExecutor(func(execCtx context.Context, _ *db.Job) error {
+		cancel(ErrJobPaused)
+		<-execCtx.Done()
+		return execCtx.Err()
+	}), testConfig())
 
 	if err := worker.processNext(ctx); err != nil {
 		t.Fatalf("process paused job: %v", err)
@@ -347,11 +375,12 @@ func TestProcessNextMarksJobPausedWhenExecutorObservesPause(t *testing.T) {
 	if store.job.Progress != "42" {
 		t.Fatalf("job progress = %q, want current progress preserved", store.job.Progress)
 	}
+	assertHasLog(t, store.logs, Info, "pausing job")
 }
 
 func TestProcessNextReturnsStatusUpdateErrorAndDoesNotContinue(t *testing.T) {
 	updateErr := errors.New("store update failed")
-	store := newFakeJobStore(db.Job{ID: 14, Status: JobRunning, Attempt: 0})
+	store := newFakeJobStore(db.Job{ID: 14, Status: JobRunning, Retries: 0})
 	store.updateErrByStatus[JobRetrying] = updateErr
 	calls := 0
 	worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
@@ -371,7 +400,7 @@ func TestProcessNextReturnsStatusUpdateErrorAndDoesNotContinue(t *testing.T) {
 
 func TestCancelJobMarksQueuedJobAsCancelled(t *testing.T) {
 	worker, store, database := newTestWorker(t, nil)
-	jobID := insertJob(t, database, JobRefreshTitle, JobQueued, 0, time.Now().UTC())
+	jobID := insertJob(t, database, RefreshTitle, JobQueued, 0, time.Now().UTC())
 
 	if err := worker.CancelJob(context.Background(), jobID); err != nil {
 		t.Fatalf("cancel queued job: %v", err)
@@ -385,7 +414,7 @@ func TestCancelJobMarksQueuedJobAsCancelled(t *testing.T) {
 
 func TestCancelJobCancelsRegisteredRunningJobWithoutOverwritingStatus(t *testing.T) {
 	worker, store, database := newTestWorker(t, nil)
-	jobID := insertJob(t, database, JobRefreshTitle, JobRunning, 0, time.Now().UTC())
+	jobID := insertJob(t, database, RefreshTitle, JobRunning, 0, time.Now().UTC())
 	ctx, cancel := context.WithCancelCause(context.Background())
 	worker.registerRunning(jobID, cancel)
 	t.Cleanup(func() { worker.unregisterRunning(jobID) })
@@ -409,16 +438,16 @@ func TestCancelJobCancelsRegisteredRunningJobWithoutOverwritingStatus(t *testing
 func TestPauseJobPausesRegisteredRunningJobWithoutOverwritingStatus(t *testing.T) {
 	worker, store, database := newTestWorker(t, nil)
 	timeNow := time.Now().UTC()
-	jobID := insertJob(t, database, JobRefreshTitle, JobRunning, 0, timeNow)
+	jobID := insertJob(t, database, RefreshTitle, JobRunning, 0, timeNow)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	worker.registerRunning(jobID, cancel)
 	t.Cleanup(func() { worker.unregisterRunning(jobID) })
 
 	job := db.Job{
 		ID:        jobID,
-		JobType:   JobRefreshTitle,
+		JobType:   RefreshTitle,
 		Status:    JobRunning,
-		Attempt:   0,
+		Retries:   0,
 		Progress:  "0",
 		CreatedAt: timeNow,
 	}
@@ -465,23 +494,23 @@ func TestProcessNextMarksJobFailedWhenExecutionCannotSucceed(t *testing.T) {
 	}
 }
 
-func TestProcessNextMarksKnownJobFailedAfterLastAttemptFailure(t *testing.T) {
+func TestProcessNextMarksKnownJobFailedAfterLastRetryFailure(t *testing.T) {
 	worker, store, database := newTestWorker(t, fakeExecutor(func(context.Context, *db.Job) error {
 		return errors.New("refresh_title job missing saved_title_id")
 	}))
 	worker.configManager = fakeConfigGetter{config: common.ConfigData{MaxRetries: 1}}
-	jobID := insertJob(t, database, JobRefreshTitle, JobQueued, 2, time.Now().UTC())
+	jobID := insertJob(t, database, RefreshTitle, JobQueued, 1, time.Now().UTC())
 
 	if err := worker.processNext(context.Background()); err != nil {
-		t.Fatalf("process final failed attempt: %v", err)
+		t.Fatalf("process final failed retry: %v", err)
 	}
 
 	job := getJob(t, store, jobID)
 	if job.Status != JobFailed {
 		t.Fatalf("job status = %q, want %q", job.Status, JobFailed)
 	}
-	if job.Attempt != 1 {
-		t.Fatalf("job attempt = %d, want claimed attempt recorded", job.Attempt)
+	if job.Retries != 1 {
+		t.Fatalf("job retries = %d, want claimed retry recorded", job.Retries)
 	}
 	if job.ErrorMessage == nil || *job.ErrorMessage != "refresh_title job missing saved_title_id" {
 		t.Fatalf("job error message = %v, want missing saved_title_id details", job.ErrorMessage)
@@ -489,10 +518,16 @@ func TestProcessNextMarksKnownJobFailedAfterLastAttemptFailure(t *testing.T) {
 }
 
 func TestProcessNextCancelsJobWhileWaitingForRetry(t *testing.T) {
-	worker, store, database := newTestWorker(t, fakeExecutor(func(context.Context, *db.Job) error {
+	retrying := make(chan struct{})
+	store := newFakeJobStore(db.Job{ID: 16, Status: JobRunning, Retries: 0})
+	store.updateHook = func(status db.JobStatusUpdate) {
+		if status.Status == JobRetrying {
+			close(retrying)
+		}
+	}
+	worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
 		return errors.New("temporary failure")
-	}))
-	jobID := insertJob(t, database, JobRefreshTitle, JobQueued, 0, time.Now().UTC())
+	}), testConfig())
 	ctx, cancel := context.WithCancelCause(context.Background())
 	result := make(chan error, 1)
 
@@ -500,7 +535,7 @@ func TestProcessNextCancelsJobWhileWaitingForRetry(t *testing.T) {
 		result <- worker.processNext(ctx)
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	<-retrying
 	cancel(ErrJobCancelled)
 
 	select {
@@ -512,20 +547,27 @@ func TestProcessNextCancelsJobWhileWaitingForRetry(t *testing.T) {
 		t.Fatal("process next did not stop after retry wait context cancellation")
 	}
 
-	job := getJob(t, store, jobID)
-	if job.Status != JobCancelled {
-		t.Fatalf("job status = %q, want %q", job.Status, JobCancelled)
+	if store.job.Status != JobCancelled {
+		t.Fatalf("job status = %q, want %q", store.job.Status, JobCancelled)
 	}
-	if job.Attempt != 2 {
-		t.Fatalf("job attempt = %d, want retry attempt recorded before cancellation", job.Attempt)
+	if store.job.Retries != 1 {
+		t.Fatalf("job retry = %d, want retry recorded before cancellation", store.job.Retries)
 	}
+	assertStatusSequence(t, store.updates, JobRetrying, JobCancelled)
+	assertHasLog(t, store.logs, Info, "cancelling job")
 }
 
 func TestProcessNextPausesJobWhileWaitingForRetry(t *testing.T) {
-	worker, store, database := newTestWorker(t, fakeExecutor(func(context.Context, *db.Job) error {
+	retrying := make(chan struct{})
+	store := newFakeJobStore(db.Job{ID: 17, Status: JobRunning, Progress: "19", Retries: 0})
+	store.updateHook = func(status db.JobStatusUpdate) {
+		if status.Status == JobRetrying {
+			close(retrying)
+		}
+	}
+	worker := NewWorker(store, fakeExecutor(func(context.Context, *db.Job) error {
 		return errors.New("temporary failure")
-	}))
-	jobID := insertJob(t, database, JobRefreshTitle, JobQueued, 0, time.Now().UTC())
+	}), testConfig())
 	ctx, cancel := context.WithCancelCause(context.Background())
 	result := make(chan error, 1)
 
@@ -533,7 +575,7 @@ func TestProcessNextPausesJobWhileWaitingForRetry(t *testing.T) {
 		result <- worker.processNext(ctx)
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	<-retrying
 	cancel(ErrJobPaused)
 
 	select {
@@ -545,13 +587,17 @@ func TestProcessNextPausesJobWhileWaitingForRetry(t *testing.T) {
 		t.Fatal("process next did not stop after retry wait context pause")
 	}
 
-	job := getJob(t, store, jobID)
-	if job.Status != JobPaused {
-		t.Fatalf("job status = %q, want %q", job.Status, JobPaused)
+	if store.job.Status != JobPaused {
+		t.Fatalf("job status = %q, want %q", store.job.Status, JobPaused)
 	}
-	if job.Attempt != 2 {
-		t.Fatalf("job attempt = %d, want retry attempt recorded before pause", job.Attempt)
+	if store.job.Retries != 1 {
+		t.Fatalf("job retries = %d, want retry recorded before pause", store.job.Retries)
 	}
+	if store.job.Progress != "19" {
+		t.Fatalf("job progress = %q, want current progress preserved", store.job.Progress)
+	}
+	assertStatusSequence(t, store.updates, JobRetrying, JobPaused)
+	assertHasLog(t, store.logs, Info, "pausing job")
 }
 
 func TestJobStatusUpdateBuildersDefineTerminalAndRetryTransitions(t *testing.T) {
@@ -565,9 +611,9 @@ func TestJobStatusUpdateBuildersDefineTerminalAndRetryTransitions(t *testing.T) 
 		t.Fatalf("failed status update = %+v, want failed with error message", failed)
 	}
 
-	retrying := markJobAsRetrying(&db.Job{ID: 12, Attempt: 1})
-	if retrying.ID != 12 || retrying.Status != JobRetrying || retrying.Attempt == nil || *retrying.Attempt != 2 {
-		t.Fatalf("retrying status update = %+v, want attempt incremented to 2", retrying)
+	retrying := markJobAsRetrying(&db.Job{ID: 12, Retries: 1})
+	if retrying.ID != 12 || retrying.Status != JobRetrying || retrying.Retries == nil || *retrying.Retries != 2 {
+		t.Fatalf("retrying status update = %+v, want retries incremented to 2", retrying)
 	}
 
 	cancelled := markJobAsCancelled(13)

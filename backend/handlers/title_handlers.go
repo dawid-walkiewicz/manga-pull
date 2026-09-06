@@ -6,6 +6,7 @@ import (
 	"log"
 	"main/db"
 	"main/models"
+	"main/services"
 	"net/http"
 	"strconv"
 
@@ -35,7 +36,7 @@ func ListTitlesHandler(store *db.Store) http.HandlerFunc {
 
 func GetTitleHandler(store *db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
+		idStr := chi.URLParam(r, "titleId")
 
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -75,7 +76,7 @@ func GetTitleHandler(store *db.Store) http.HandlerFunc {
 
 func DeleteTitleHandler(store *db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
+		idStr := chi.URLParam(r, "titleId")
 
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -97,5 +98,35 @@ func DeleteTitleHandler(store *db.Store) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func RefreshTitleHandler(service *services.TitleManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := chi.URLParam(r, "titleId")
+
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			log.Printf("RefreshTitle: %v", err)
+			WriteError(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+
+		refreshedTitle, err := service.RefreshTitle(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				WriteError(w, http.StatusNotFound, "title not found")
+				return
+			}
+			log.Printf("RefreshTitle: %v", err)
+			writePluginServiceError(w, err, "failed to fetch title from plugin")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(refreshedTitle.Title); err != nil {
+			log.Printf("RefreshTitle: %v", err)
+		}
 	}
 }

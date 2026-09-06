@@ -87,7 +87,7 @@ function RouteComponent() {
 						<TableHead>ID</TableHead>
 						<TableHead>Status</TableHead>
 						<TableHead>Type</TableHead>
-						<TableHead>Attempt</TableHead>
+						<TableHead>Retries</TableHead>
 						<TableHead>Progress</TableHead>
 						<TableHead>Created</TableHead>
 						<TableHead>Started</TableHead>
@@ -102,7 +102,7 @@ function RouteComponent() {
 							<TableCell>{job.id}</TableCell>
 							<TableCell>{job.status}</TableCell>
 							<TableCell>{formatJobType(job.jobType)}</TableCell>
-							<TableCell>{job.attempt}</TableCell>
+							<TableCell>{job.retries}</TableCell>
 							<TableCell>{job.progress}</TableCell>
 							<TableCell>
 								<span>

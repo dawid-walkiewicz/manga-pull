@@ -13,10 +13,16 @@ const (
 )
 
 const (
-	JobRefreshTitle    string = "refresh_title"
-	JobDownloadChapter string = "download_chapter"
+	RefreshTitle    string = "refresh_title"
+	DownloadChapter string = "download_chapter"
 )
 
 var (
 	ErrJobTypeUnknown = errors.New("unknown job type")
+)
+
+const (
+	Info    string = "info"
+	Warning string = "warning"
+	Error   string = "error"
 )

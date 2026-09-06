@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { RotateCw } from "lucide-react";
+import { RotateCw, TriangleAlert } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { Switch } from "#/components/ui/switch";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "#/components/ui/tooltip";
 import {
 	disablePlugin,
 	enablePlugin,
@@ -34,16 +39,27 @@ function PluginsPage() {
 						<span className="text-xl">{plugin.name}</span>
 						<span className="text-sm">{plugin.version}</span>
 					</div>
-					<Switch
-						defaultChecked={plugin.enabled}
-						onCheckedChange={(checked: boolean) => {
-							if (checked) {
-								enablePlugin(plugin.id);
-							} else {
-								disablePlugin(plugin.id);
-							}
-						}}
-					/>
+					<div className="flex flex-row gap-2 items-center">
+						{plugin.error && (
+							<Tooltip>
+								<TooltipTrigger>
+									<TriangleAlert className="text-red-500" />
+								</TooltipTrigger>
+								<TooltipContent side="bottom">{plugin.error}</TooltipContent>
+							</Tooltip>
+						)}
+						<Switch
+							defaultChecked={plugin.enabled}
+							disabled={plugin.error !== null}
+							onCheckedChange={(checked: boolean) => {
+								if (checked) {
+									enablePlugin(plugin.id);
+								} else {
+									disablePlugin(plugin.id);
+								}
+							}}
+						/>
+					</div>
 				</div>
 			))}
 		</div>

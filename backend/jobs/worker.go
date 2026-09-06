@@ -4,18 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
-	"main/common"
-	"main/db"
 	"sync"
 	"time"
+
+	"main/common"
+	"main/db"
 )
 
-type JobStore interface {
+type JobProcessor interface {
 	ClaimNextJob(ctx context.Context) (*db.Job, error)
 	UpdateJobStatus(ctx context.Context, status db.JobStatusUpdate) (*db.Job, error)
-	GetSavedTitle(ctx context.Context, id int64) (db.SavedTitle, error)
-	CreateJob(ctx context.Context, job db.Job) (int64, error)
+	AddJobLog(ctx context.Context, jobID int64, level, message string) error
 }
 
 type Executor interface {
@@ -32,7 +33,7 @@ var (
 )
 
 type Worker struct {
-	store         JobStore
+	store         JobProcessor
 	executor      Executor
 	configManager ConfigGetter
 
@@ -40,7 +41,7 @@ type Worker struct {
 	running map[int64]context.CancelCauseFunc
 }
 
-func NewWorker(store JobStore, executor Executor, configManager ConfigGetter) *Worker {
+func NewWorker(store JobProcessor, executor Executor, configManager ConfigGetter) *Worker {
 	return &Worker{
 		store:         store,
 		executor:      executor,
@@ -99,6 +100,7 @@ func (w *Worker) CancelJob(ctx context.Context, id int64) error {
 		return nil
 	}
 
+	LogJob(ctx, w.store, id, Info, "cancelling job")
 	_, err := w.store.UpdateJobStatus(ctx, *markJobAsCancelled(id))
 	return err
 }
@@ -107,6 +109,8 @@ func (w *Worker) PauseJob(ctx context.Context, job *db.Job) error {
 	if w.pauseRunning(job.ID) {
 		return nil
 	}
+
+	LogJob(ctx, w.store, job.ID, Info, "pausing job")
 	_, err := w.store.UpdateJobStatus(ctx, *markJobAsPaused(job))
 	return err
 }
@@ -115,14 +119,16 @@ func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
+	log.Println("starting worker")
+
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("stopping worker")
 			return
 
 		case <-ticker.C:
 			err := w.processNext(ctx)
-
 			if err != nil {
 				log.Printf("job worker: %v", err)
 			}
@@ -146,68 +152,91 @@ func (w *Worker) processNext(ctx context.Context) error {
 	config := w.configManager.Get()
 
 	var lastExecErr error
-	for job.Attempt < (config.MaxRetries + 1) {
+	for {
 		lastExecErr = w.executor.Execute(jobCtx, job)
 		if lastExecErr == nil {
+			LogJob(jobCtx, w.store, job.ID, Info, "job executed successfully")
 			_, err = w.store.UpdateJobStatus(jobCtx, *markJobAsCompleted(job.ID))
 			return err
 		}
 
 		if errors.Is(lastExecErr, ErrJobTypeUnknown) {
+			LogJob(jobCtx, w.store, job.ID, Error, lastExecErr.Error())
 			break
 		}
+
+		LogJob(jobCtx, w.store, job.ID, Error, lastExecErr.Error())
 
 		if errors.Is(lastExecErr, context.Canceled) {
 			err = context.Cause(jobCtx)
 
+			safeCtx, cancel := context.WithTimeout(context.WithoutCancel(jobCtx), 5*time.Second)
+			defer cancel()
+
 			switch err {
 			case ErrJobPaused:
-				_, err = w.store.UpdateJobStatus(context.Background(), *markJobAsPaused(job))
+				LogJob(safeCtx, w.store, job.ID, Info, "pausing job")
+				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsPaused(job))
 				return err
 			case ErrJobCancelled:
-				_, err = w.store.UpdateJobStatus(context.Background(), *markJobAsCancelled(job.ID))
+				LogJob(safeCtx, w.store, job.ID, Info, "cancelling job")
+				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsCancelled(job.ID))
 				return err
 			default:
 				return err
 			}
 		}
 
-		if job.Attempt+1 >= (config.MaxRetries + 1) {
+		if job.Retries >= config.MaxRetries {
+			LogJob(jobCtx, w.store, job.ID, Warning, "maximum number of retries reached")
 			break
 		}
 
+		LogJob(jobCtx, w.store, job.ID, Error, "job execution failed, marking as retrying")
 		job, err = w.store.UpdateJobStatus(jobCtx, *markJobAsRetrying(job))
 		if err != nil {
 			return err
 		}
-		delay := time.Duration(10*job.Attempt) * time.Second
+		delay := time.Duration(10*job.Retries) * time.Second
+		LogJob(jobCtx, w.store, job.ID, Info, fmt.Sprintf("retrying after %s", delay))
 
 		select {
 		case <-time.After(delay):
 		case <-jobCtx.Done():
+			safeCtx, cancel := context.WithTimeout(context.WithoutCancel(jobCtx), 5*time.Second)
+
 			switch context.Cause(jobCtx) {
 			case ErrJobPaused:
-				_, err = w.store.UpdateJobStatus(context.Background(), *markJobAsPaused(job))
+				LogJob(safeCtx, w.store, job.ID, Info, "pausing job")
+				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsPaused(job))
 			case ErrJobCancelled:
-				_, err = w.store.UpdateJobStatus(context.Background(), *markJobAsCancelled(job.ID))
+				LogJob(safeCtx, w.store, job.ID, Info, "cancelling job")
+				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsCancelled(job.ID))
 			default:
 				err = jobCtx.Err()
 			}
+			cancel()
 			return err
 		}
 	}
 
-	_, err = w.store.UpdateJobStatus(ctx, *markJobAsFailed(job.ID, lastExecErr))
+	safeCtx, safeCancel := context.WithTimeout(context.WithoutCancel(jobCtx), 5*time.Second)
+	defer safeCancel()
+	LogJob(safeCtx, w.store, job.ID, Info, "marking job as failed")
+	_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsFailed(job.ID, lastExecErr))
 	return err
 }
 
-func markJobAsRunning(jobId int64) *db.JobStatusUpdate {
-	now := time.Now().UTC()
+func markJobAsRunning(jobId int64, progress string, startedAt *time.Time) *db.JobStatusUpdate {
+	if startedAt == nil {
+		now := time.Now().UTC()
+		startedAt = &now
+	}
 	return &db.JobStatusUpdate{
 		ID:        jobId,
 		Status:    JobRunning,
-		Progress:  ptr("0"),
-		StartedAt: &now,
+		Progress:  &progress,
+		StartedAt: startedAt,
 	}
 }
 
@@ -234,7 +263,7 @@ func markJobAsRetrying(job *db.Job) *db.JobStatusUpdate {
 	return &db.JobStatusUpdate{
 		ID:      job.ID,
 		Status:  JobRetrying,
-		Attempt: ptr(job.Attempt + 1),
+		Retries: ptr(job.Retries + 1),
 	}
 }
 
