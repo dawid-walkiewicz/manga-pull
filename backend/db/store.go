@@ -620,162 +620,177 @@ func (s *Store) ClaimNextJob(ctx context.Context) (*Job, error) {
 	return &job, nil
 }
 
-func (s *Store) UpdateJobStatus(ctx context.Context, jobStatus JobStatusUpdate) (*Job, error) {
-	var query string
-
-	switch jobStatus.Status {
-	case "queued":
-		query = `
-				UPDATE jobs
-				SET
-					status = :status
-				WHERE id = :id
-					AND status = 'paused'
-		`
-	case "running":
-		query = `
-				UPDATE jobs
-				SET
-					status = :status,
-					progress = :progress,
-					started_at = :started_at
-				WHERE id = :id
-			`
-	case "paused":
-		query = `
-				UPDATE jobs
-				SET
-					status = :status,
-					progress = :progress
-				WHERE id = :id
-					AND status IN ('queued', 'running', 'retrying')
-			`
-	case "retrying":
-		query = `
-				UPDATE jobs
-				SET
-					status = :status,
-					retries = :retries
-				WHERE id = :id
-					AND status IN ('running', 'retrying')
-			`
-	case "completed":
-		query = `
-				UPDATE jobs
-				SET
-					status = :status,
-					progress = :progress,
-					error_message = :error_message,
-					finished_at = :finished_at
-				WHERE id = :id
-					AND status IN ('running', 'retrying')
-			`
-	case "failed":
-		query = `
-				UPDATE jobs
-				SET
-					status = :status,
-					error_message = :error_message
-				WHERE id = :id
-					AND status IN ('running', 'retrying')
-			`
-	case "cancelled":
-		query = `
-				UPDATE jobs
-				SET
-					status = :status
-				WHERE id = :id
-					AND status IN ('queued', 'running', 'retrying', 'paused')
-			`
-	default:
-		return nil, fmt.Errorf("unsupported job status: %q", jobStatus.Status)
-	}
-
-	result, err := s.db.NamedExecContext(ctx, query, jobStatus)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if rows == 0 {
-		var currentStatus string
-
-		err := s.db.GetContext(ctx, &currentStatus, "SELECT status FROM jobs WHERE id = ?", jobStatus.ID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, ErrNotFound
-			}
-			return nil, err
-		}
-
-		return nil, fmt.Errorf("%w: cannot change status from %q to %q (job ID: %v)", ErrInvalidStateTransition,
-			currentStatus, jobStatus.Status, jobStatus.ID)
-	}
+func (s *Store) UpdateJobProgress(ctx context.Context, id int64, progress string) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			progress = ?
+		WHERE id = ? AND status IN ('running')
+		RETURNING *
+	`
 
 	var updated Job
-	err = s.db.GetContext(ctx, &updated,
-		`
-		SELECT *
-		FROM jobs
-		WHERE id = ?
-		`, jobStatus.ID,
-	)
+	err := s.db.GetContext(ctx, &updated, query, progress, id)
 	if err != nil {
-		return nil, err
+		return nil, s.identifyStatusError(ctx, err, id, "running")
 	}
 
 	return &updated, nil
 }
 
-func (s *Store) RetryJob(ctx context.Context, jobStatus JobStatusUpdate) (*Job, error) {
+func (s *Store) MarkJobAsPaused(ctx context.Context, id int64) (*Job, error) {
 	query := `
 		UPDATE jobs
 		SET
-			status = :status,
-			progress = :progress,
-			error_message = :error_message,
-			finished_at = :finished_at
-		WHERE id = :id
-			 AND status IN ('failed', 'cancelled')
+			status = 'paused'
+		WHERE id = ?
+			AND status IN ('queued', 'running', 'retrying')
+		RETURNING *
+	`
+	var updated Job
+	err := s.db.GetContext(ctx, &updated, query, id)
+	if err != nil {
+		return nil, s.identifyStatusError(ctx, err, id, "paused")
+	}
+
+	return &updated, nil
+}
+
+func (s *Store) MarkJobAsResumed(ctx context.Context, id int64) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			status = 'queued'
+		WHERE id = ?
+			AND status = 'paused'
+		RETURNING *
 	`
 
-	result, err := s.db.NamedExecContext(ctx, query, jobStatus)
+	var updated Job
+	err := s.db.GetContext(ctx, &updated, query, id)
 	if err != nil {
-		return nil, err
+		return nil, s.identifyStatusError(ctx, err, id, "queued")
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if rows == 0 {
-		var currentStatus string
+	return &updated, nil
+}
 
-		err := s.db.GetContext(ctx, &currentStatus, "SELECT status FROM jobs WHERE id = ?", jobStatus.ID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, ErrNotFound
-			}
-			return nil, err
-		}
-
-		return nil, fmt.Errorf("%w: cannot change status from %q to %q (job ID: %v)", ErrInvalidStateTransition,
-			currentStatus, jobStatus.Status, jobStatus.ID)
-	}
+func (s *Store) MarkJobAsRetrying(ctx context.Context, id int64, retries int) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			status = 'retrying',
+			retries = ?
+		WHERE id = ?
+			AND status IN ('running', 'retrying')
+		RETURNING *
+	`
 
 	var updated Job
-	err = s.db.GetContext(ctx, &updated,
-		`
-		SELECT *
-		FROM jobs
-		WHERE id = ?
-		`, jobStatus.ID,
-	)
+	err := s.db.GetContext(ctx, &updated, query, retries, id)
 	if err != nil {
-		return nil, err
+		return nil, s.identifyStatusError(ctx, err, id, "retrying")
+	}
+
+	return &updated, nil
+}
+
+func (s *Store) MarkJobAsCompleted(ctx context.Context, id int64, progress string, errMessage *string, finishedAt time.Time) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			status = 'completed',
+			progress = ?,
+			error_message = ?,
+			finished_at = ?
+		WHERE id = ?
+			AND status IN ('running', 'retrying')
+		RETURNING *
+	`
+
+	var updated Job
+	err := s.db.GetContext(ctx, &updated, query, progress, errMessage, finishedAt, id)
+	if err != nil {
+		return nil, s.identifyStatusError(ctx, err, id, "completed")
+	}
+
+	return &updated, nil
+}
+
+func (s *Store) MarkJobAsFailed(ctx context.Context, id int64, errMessage string) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			status = 'failed',
+			error_message = ?
+		WHERE id = ?
+			AND status IN ('running', 'retrying')
+		RETURNING *
+	`
+
+	var updated Job
+	err := s.db.GetContext(ctx, &updated, query, errMessage, id)
+	if err != nil {
+		return nil, s.identifyStatusError(ctx, err, id, "failed")
+	}
+
+	return &updated, nil
+}
+
+func (s *Store) MarkJobAsCancelled(ctx context.Context, id int64) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			status = 'cancelled'
+		WHERE id = ?
+			AND status IN ('queued', 'running', 'retrying', 'paused')
+		RETURNING *
+	`
+
+	var updated Job
+	err := s.db.GetContext(ctx, &updated, query, id)
+	if err != nil {
+		return nil, s.identifyStatusError(ctx, err, id, "cancelled")
+	}
+
+	return &updated, nil
+}
+
+func (s *Store) identifyStatusError(ctx context.Context, err error, id int64, status string) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		var currentStatus string
+
+		err := s.db.GetContext(ctx, &currentStatus, "SELECT status FROM jobs WHERE id = ?", id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+
+		return fmt.Errorf("%w: cannot change status from %q to %q (job ID: %v)", ErrInvalidStateTransition,
+			currentStatus, status, id)
+	}
+	return err
+}
+
+func (s *Store) RetryJob(ctx context.Context, id int64) (*Job, error) {
+	query := `
+		UPDATE jobs
+		SET
+			status = 'queued',
+			progress = '0',
+			error_message = NULL,
+			finished_at = NULL
+		WHERE id = ?
+			 AND status IN ('failed', 'cancelled')
+		RETURNING *
+	`
+
+	var updated Job
+	err := s.db.GetContext(ctx, &updated, query, id)
+	if err != nil {
+		return nil, s.identifyStatusError(ctx, err, id, "queued")
 	}
 
 	return &updated, nil

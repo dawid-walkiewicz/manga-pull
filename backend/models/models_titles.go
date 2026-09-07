@@ -1,8 +1,9 @@
 package models
 
 import (
-	"main/db"
 	"time"
+
+	"main/db"
 )
 
 type SavedTitle struct {

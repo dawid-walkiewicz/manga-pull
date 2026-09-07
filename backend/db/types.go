@@ -4,7 +4,6 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 type StringList []string
@@ -31,14 +30,4 @@ func (s *StringList) Scan(value any) error {
 
 func (s StringList) Value() (driver.Value, error) {
 	return json.Marshal(s)
-}
-
-type JobStatusUpdate struct {
-	ID           int64      `db:"id"`
-	Status       string     `db:"status"`
-	Retries      *int       `db:"retries"`
-	Progress     *string    `db:"progress"`
-	ErrorMessage *string    `db:"error_message"`
-	StartedAt    *time.Time `db:"started_at"`
-	FinishedAt   *time.Time `db:"finished_at"`
 }

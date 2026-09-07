@@ -76,7 +76,7 @@ func PauseJobHandler(store *db.Store, worker *jobs.Worker) http.HandlerFunc {
 			return
 		}
 
-		err := worker.PauseJob(r.Context(), job)
+		err := worker.PauseJob(r.Context(), job.ID)
 		if err != nil {
 			log.Printf("PauseJob: %v", err)
 			WriteError(w, http.StatusConflict, "job could not be paused")
@@ -100,11 +100,7 @@ func ResumeJobHandler(store *db.Store) http.HandlerFunc {
 			return
 		}
 
-		update := db.JobStatusUpdate{
-			ID:     job.ID,
-			Status: jobs.JobQueued,
-		}
-		_, err := store.UpdateJobStatus(r.Context(), update)
+		_, err := store.MarkJobAsResumed(r.Context(), job.ID)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "internal error")
 			return
@@ -132,16 +128,7 @@ func RetryJobHandler(store *db.Store) http.HandlerFunc {
 			return
 		}
 
-		progress := "0"
-		errorMessage := ""
-		update := db.JobStatusUpdate{
-			ID:           job.ID,
-			Status:       jobs.JobQueued,
-			Progress:     &progress,
-			ErrorMessage: &errorMessage,
-			FinishedAt:   nil,
-		}
-		_, err := store.RetryJob(r.Context(), update)
+		_, err := store.RetryJob(r.Context(), job.ID)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "internal error")
 			return

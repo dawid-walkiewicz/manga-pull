@@ -26,9 +26,9 @@ type DownloadChapterPayload struct {
 
 type JobStore interface {
 	CreateJobs(ctx context.Context, jobs []db.Job) error
-	UpdateJobStatus(ctx context.Context, status db.JobStatusUpdate) (*db.Job, error)
 	UpdateChapter(ctx context.Context, chapter db.Chapter) error
 	AddJobLog(ctx context.Context, jobID int64, level, message string) error
+	UpdateJobProgress(ctx context.Context, id int64, progress string) (*db.Job, error)
 }
 
 type Runner struct {
@@ -121,7 +121,7 @@ func (r *Runner) downloadChapter(ctx context.Context, job *db.Job) error {
 		}
 
 		if (i+1)%5 == 0 {
-			job, err = r.store.UpdateJobStatus(ctx, *markJobAsRunning(job.ID, strconv.Itoa(i*100/len(details.Descriptor.Pages)), job.StartedAt))
+			job, err = r.store.UpdateJobProgress(ctx, job.ID, strconv.Itoa((i+1)*100/len(details.Descriptor.Pages)))
 			if err != nil {
 				LogJob(ctx, r.store, job.ID, Error, fmt.Sprintf("error during downloading page %d", i+1))
 				return err

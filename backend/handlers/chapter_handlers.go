@@ -28,7 +28,7 @@ func DownloadChapterHandler(store *db.Store) http.HandlerFunc {
 		_, err = store.GetChapter(r.Context(), id)
 		if err != nil {
 			log.Printf("DownloadChapter: %v", err)
-			if errors.Is(db.ErrNotFound, err) {
+			if errors.Is(err, db.ErrNotFound) {
 				WriteError(w, http.StatusNotFound, "chapter not found")
 				return
 			}

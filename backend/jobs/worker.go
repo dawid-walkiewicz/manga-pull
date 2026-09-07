@@ -15,8 +15,12 @@ import (
 
 type JobProcessor interface {
 	ClaimNextJob(ctx context.Context) (*db.Job, error)
-	UpdateJobStatus(ctx context.Context, status db.JobStatusUpdate) (*db.Job, error)
 	AddJobLog(ctx context.Context, jobID int64, level, message string) error
+	MarkJobAsPaused(ctx context.Context, id int64) (*db.Job, error)
+	MarkJobAsRetrying(ctx context.Context, id int64, retries int) (*db.Job, error)
+	MarkJobAsCompleted(ctx context.Context, id int64, progress string, errMessage *string, finishedAt time.Time) (*db.Job, error)
+	MarkJobAsFailed(ctx context.Context, id int64, errMessage string) (*db.Job, error)
+	MarkJobAsCancelled(ctx context.Context, id int64) (*db.Job, error)
 }
 
 type Executor interface {
@@ -101,17 +105,17 @@ func (w *Worker) CancelJob(ctx context.Context, id int64) error {
 	}
 
 	LogJob(ctx, w.store, id, Info, "cancelling job")
-	_, err := w.store.UpdateJobStatus(ctx, *markJobAsCancelled(id))
+	_, err := w.store.MarkJobAsCancelled(ctx, id)
 	return err
 }
 
-func (w *Worker) PauseJob(ctx context.Context, job *db.Job) error {
-	if w.pauseRunning(job.ID) {
+func (w *Worker) PauseJob(ctx context.Context, id int64) error {
+	if w.pauseRunning(id) {
 		return nil
 	}
 
-	LogJob(ctx, w.store, job.ID, Info, "pausing job")
-	_, err := w.store.UpdateJobStatus(ctx, *markJobAsPaused(job))
+	LogJob(ctx, w.store, id, Info, "pausing job")
+	_, err := w.store.MarkJobAsPaused(ctx, id)
 	return err
 }
 
@@ -156,7 +160,7 @@ func (w *Worker) processNext(ctx context.Context) error {
 		lastExecErr = w.executor.Execute(jobCtx, job)
 		if lastExecErr == nil {
 			LogJob(jobCtx, w.store, job.ID, Info, "job executed successfully")
-			_, err = w.store.UpdateJobStatus(jobCtx, *markJobAsCompleted(job.ID))
+			_, err = w.store.MarkJobAsCompleted(jobCtx, job.ID, "100", nil, time.Now().UTC())
 			return err
 		}
 
@@ -176,11 +180,11 @@ func (w *Worker) processNext(ctx context.Context) error {
 			switch err {
 			case ErrJobPaused:
 				LogJob(safeCtx, w.store, job.ID, Info, "pausing job")
-				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsPaused(job))
+				_, err = w.store.MarkJobAsPaused(safeCtx, job.ID)
 				return err
 			case ErrJobCancelled:
 				LogJob(safeCtx, w.store, job.ID, Info, "cancelling job")
-				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsCancelled(job.ID))
+				_, err = w.store.MarkJobAsCancelled(safeCtx, job.ID)
 				return err
 			default:
 				return err
@@ -193,7 +197,7 @@ func (w *Worker) processNext(ctx context.Context) error {
 		}
 
 		LogJob(jobCtx, w.store, job.ID, Error, "job execution failed, marking as retrying")
-		job, err = w.store.UpdateJobStatus(jobCtx, *markJobAsRetrying(job))
+		job, err = w.store.MarkJobAsRetrying(jobCtx, job.ID, job.Retries+1)
 		if err != nil {
 			return err
 		}
@@ -208,10 +212,10 @@ func (w *Worker) processNext(ctx context.Context) error {
 			switch context.Cause(jobCtx) {
 			case ErrJobPaused:
 				LogJob(safeCtx, w.store, job.ID, Info, "pausing job")
-				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsPaused(job))
+				_, err = w.store.MarkJobAsPaused(safeCtx, job.ID)
 			case ErrJobCancelled:
 				LogJob(safeCtx, w.store, job.ID, Info, "cancelling job")
-				_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsCancelled(job.ID))
+				_, err = w.store.MarkJobAsCancelled(safeCtx, job.ID)
 			default:
 				err = jobCtx.Err()
 			}
@@ -223,63 +227,8 @@ func (w *Worker) processNext(ctx context.Context) error {
 	safeCtx, safeCancel := context.WithTimeout(context.WithoutCancel(jobCtx), 5*time.Second)
 	defer safeCancel()
 	LogJob(safeCtx, w.store, job.ID, Info, "marking job as failed")
-	_, err = w.store.UpdateJobStatus(safeCtx, *markJobAsFailed(job.ID, lastExecErr))
+	_, err = w.store.MarkJobAsFailed(safeCtx, job.ID, lastExecErr.Error())
 	return err
-}
-
-func markJobAsRunning(jobId int64, progress string, startedAt *time.Time) *db.JobStatusUpdate {
-	if startedAt == nil {
-		now := time.Now().UTC()
-		startedAt = &now
-	}
-	return &db.JobStatusUpdate{
-		ID:        jobId,
-		Status:    JobRunning,
-		Progress:  &progress,
-		StartedAt: startedAt,
-	}
-}
-
-func markJobAsCompleted(jobId int64) *db.JobStatusUpdate {
-	now := time.Now().UTC()
-	return &db.JobStatusUpdate{
-		ID:           jobId,
-		Status:       JobCompleted,
-		Progress:     ptr("100"),
-		ErrorMessage: nil,
-		FinishedAt:   &now,
-	}
-}
-
-func markJobAsFailed(jobId int64, err error) *db.JobStatusUpdate {
-	return &db.JobStatusUpdate{
-		ID:           jobId,
-		Status:       JobFailed,
-		ErrorMessage: ptr(err.Error()),
-	}
-}
-
-func markJobAsRetrying(job *db.Job) *db.JobStatusUpdate {
-	return &db.JobStatusUpdate{
-		ID:      job.ID,
-		Status:  JobRetrying,
-		Retries: ptr(job.Retries + 1),
-	}
-}
-
-func markJobAsCancelled(jobId int64) *db.JobStatusUpdate {
-	return &db.JobStatusUpdate{
-		ID:     jobId,
-		Status: JobCancelled,
-	}
-}
-
-func markJobAsPaused(job *db.Job) *db.JobStatusUpdate {
-	return &db.JobStatusUpdate{
-		ID:       job.ID,
-		Status:   JobPaused,
-		Progress: &job.Progress,
-	}
 }
 
 func ptr[T any](v T) *T {

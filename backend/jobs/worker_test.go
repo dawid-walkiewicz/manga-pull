@@ -45,9 +45,18 @@ type fakeJobStore struct {
 	job               *db.Job
 	claimErr          error
 	updateErrByStatus map[string]error
-	updateHook        func(db.JobStatusUpdate)
-	updates           []db.JobStatusUpdate
+	updateHook        func(fakeStatusUpdate)
+	updates           []fakeStatusUpdate
 	logs              []fakeJobLog
+}
+
+type fakeStatusUpdate struct {
+	ID           int64
+	Status       string
+	Retries      *int
+	Progress     *string
+	ErrorMessage *string
+	FinishedAt   *time.Time
 }
 
 type fakeJobLog struct {
@@ -64,7 +73,7 @@ func (s *fakeJobStore) ClaimNextJob(context.Context) (*db.Job, error) {
 	return &job, nil
 }
 
-func (s *fakeJobStore) UpdateJobStatus(_ context.Context, status db.JobStatusUpdate) (*db.Job, error) {
+func (s *fakeJobStore) applyStatus(status fakeStatusUpdate) (*db.Job, error) {
 	s.updates = append(s.updates, status)
 	if err := s.updateErrByStatus[status.Status]; err != nil {
 		return nil, err
@@ -78,7 +87,6 @@ func (s *fakeJobStore) UpdateJobStatus(_ context.Context, status db.JobStatusUpd
 		s.job.Progress = *status.Progress
 	}
 	s.job.ErrorMessage = status.ErrorMessage
-	s.job.StartedAt = status.StartedAt
 	s.job.FinishedAt = status.FinishedAt
 	if s.updateHook != nil {
 		s.updateHook(status)
@@ -86,6 +94,34 @@ func (s *fakeJobStore) UpdateJobStatus(_ context.Context, status db.JobStatusUpd
 
 	job := *s.job
 	return &job, nil
+}
+
+func (s *fakeJobStore) MarkJobAsPaused(_ context.Context, id int64) (*db.Job, error) {
+	return s.applyStatus(fakeStatusUpdate{ID: id, Status: JobPaused})
+}
+
+func (s *fakeJobStore) MarkJobAsRetrying(_ context.Context, id int64, retries int) (*db.Job, error) {
+	if _, ok := s.updateErrByStatus[JobRetrying]; ok {
+		return s.applyStatus(fakeStatusUpdate{ID: id, Status: JobRetrying, Retries: &retries})
+	}
+
+	wantRetries := s.job.Retries + 1
+	if retries != wantRetries {
+		return nil, fmt.Errorf("retry count = %d, want %d", retries, wantRetries)
+	}
+	return s.applyStatus(fakeStatusUpdate{ID: id, Status: JobRetrying, Retries: &retries})
+}
+
+func (s *fakeJobStore) MarkJobAsCompleted(_ context.Context, id int64, progress string, errMessage *string, finishedAt time.Time) (*db.Job, error) {
+	return s.applyStatus(fakeStatusUpdate{ID: id, Status: JobCompleted, Progress: &progress, ErrorMessage: errMessage, FinishedAt: &finishedAt})
+}
+
+func (s *fakeJobStore) MarkJobAsFailed(_ context.Context, id int64, errMessage string) (*db.Job, error) {
+	return s.applyStatus(fakeStatusUpdate{ID: id, Status: JobFailed, ErrorMessage: &errMessage})
+}
+
+func (s *fakeJobStore) MarkJobAsCancelled(_ context.Context, id int64) (*db.Job, error) {
+	return s.applyStatus(fakeStatusUpdate{ID: id, Status: JobCancelled})
 }
 
 func (s *fakeJobStore) AddJobLog(_ context.Context, jobID int64, level, message string) error {
@@ -153,7 +189,7 @@ func getJob(t *testing.T, store *db.Store, id int64) db.Job {
 	return job
 }
 
-func assertStatusSequence(t *testing.T, updates []db.JobStatusUpdate, want ...string) {
+func assertStatusSequence(t *testing.T, updates []fakeStatusUpdate, want ...string) {
 	t.Helper()
 	if len(updates) != len(want) {
 		t.Fatalf("status update count = %d, want %d; updates = %+v", len(updates), len(want), updates)
@@ -173,6 +209,17 @@ func assertHasLog(t *testing.T, logs []fakeJobLog, level, message string) {
 		}
 	}
 	t.Fatalf("logs do not contain %s %q; logs = %+v", level, message, logs)
+}
+
+func waitForRetrying(t *testing.T, result <-chan error, retrying <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-retrying:
+	case err := <-result:
+		t.Fatalf("process next returned before retry wait: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("process next did not enter retry wait")
+	}
 }
 
 func TestClaimNextJobClaimsOldestQueuedJobAndSkipsNonQueuedJobs(t *testing.T) {
@@ -443,15 +490,7 @@ func TestPauseJobPausesRegisteredRunningJobWithoutOverwritingStatus(t *testing.T
 	worker.registerRunning(jobID, cancel)
 	t.Cleanup(func() { worker.unregisterRunning(jobID) })
 
-	job := db.Job{
-		ID:        jobID,
-		JobType:   RefreshTitle,
-		Status:    JobRunning,
-		Retries:   0,
-		Progress:  "0",
-		CreatedAt: timeNow,
-	}
-	if err := worker.PauseJob(context.Background(), &job); err != nil {
+	if err := worker.PauseJob(context.Background(), jobID); err != nil {
 		t.Fatalf("pause registered running job: %v", err)
 	}
 
@@ -464,7 +503,7 @@ func TestPauseJobPausesRegisteredRunningJobWithoutOverwritingStatus(t *testing.T
 		t.Fatal("registered running job context was not paused")
 	}
 
-	job = getJob(t, store, jobID)
+	job := getJob(t, store, jobID)
 	if job.Status != JobRunning {
 		t.Fatalf("running job status = %q, want it left running until worker observes pause", job.Status)
 	}
@@ -520,7 +559,7 @@ func TestProcessNextMarksKnownJobFailedAfterLastRetryFailure(t *testing.T) {
 func TestProcessNextCancelsJobWhileWaitingForRetry(t *testing.T) {
 	retrying := make(chan struct{})
 	store := newFakeJobStore(db.Job{ID: 16, Status: JobRunning, Retries: 0})
-	store.updateHook = func(status db.JobStatusUpdate) {
+	store.updateHook = func(status fakeStatusUpdate) {
 		if status.Status == JobRetrying {
 			close(retrying)
 		}
@@ -535,7 +574,7 @@ func TestProcessNextCancelsJobWhileWaitingForRetry(t *testing.T) {
 		result <- worker.processNext(ctx)
 	}()
 
-	<-retrying
+	waitForRetrying(t, result, retrying)
 	cancel(ErrJobCancelled)
 
 	select {
@@ -560,7 +599,7 @@ func TestProcessNextCancelsJobWhileWaitingForRetry(t *testing.T) {
 func TestProcessNextPausesJobWhileWaitingForRetry(t *testing.T) {
 	retrying := make(chan struct{})
 	store := newFakeJobStore(db.Job{ID: 17, Status: JobRunning, Progress: "19", Retries: 0})
-	store.updateHook = func(status db.JobStatusUpdate) {
+	store.updateHook = func(status fakeStatusUpdate) {
 		if status.Status == JobRetrying {
 			close(retrying)
 		}
@@ -575,7 +614,7 @@ func TestProcessNextPausesJobWhileWaitingForRetry(t *testing.T) {
 		result <- worker.processNext(ctx)
 	}()
 
-	<-retrying
+	waitForRetrying(t, result, retrying)
 	cancel(ErrJobPaused)
 
 	select {
@@ -598,33 +637,6 @@ func TestProcessNextPausesJobWhileWaitingForRetry(t *testing.T) {
 	}
 	assertStatusSequence(t, store.updates, JobRetrying, JobPaused)
 	assertHasLog(t, store.logs, Info, "pausing job")
-}
-
-func TestJobStatusUpdateBuildersDefineTerminalAndRetryTransitions(t *testing.T) {
-	completed := markJobAsCompleted(10)
-	if completed.ID != 10 || completed.Status != JobCompleted || completed.Progress == nil || *completed.Progress != "100" || completed.FinishedAt == nil || completed.ErrorMessage != nil {
-		t.Fatalf("completed status update = %+v, want completed with 100%% progress, finish time, and cleared error", completed)
-	}
-
-	failed := markJobAsFailed(11, assertErr("boom"))
-	if failed.ID != 11 || failed.Status != JobFailed || failed.ErrorMessage == nil || *failed.ErrorMessage != "boom" {
-		t.Fatalf("failed status update = %+v, want failed with error message", failed)
-	}
-
-	retrying := markJobAsRetrying(&db.Job{ID: 12, Retries: 1})
-	if retrying.ID != 12 || retrying.Status != JobRetrying || retrying.Retries == nil || *retrying.Retries != 2 {
-		t.Fatalf("retrying status update = %+v, want retries incremented to 2", retrying)
-	}
-
-	cancelled := markJobAsCancelled(13)
-	if cancelled.ID != 13 || cancelled.Status != JobCancelled {
-		t.Fatalf("cancelled status update = %+v, want cancelled", cancelled)
-	}
-
-	paused := markJobAsPaused(&db.Job{ID: 14, Progress: "37"})
-	if paused.ID != 14 || paused.Status != JobPaused || paused.Progress == nil || *paused.Progress != "37" {
-		t.Fatalf("paused status update = %+v, want paused with current progress", paused)
-	}
 }
 
 type assertErr string
