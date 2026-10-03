@@ -242,9 +242,10 @@ func (m *TitleManager) BeginChapterDownload(
 	}
 
 	return &ChapterDownload{
-		Descriptor:    *chapterDesc,
-		Name:          builder.String(),
-		DirectoryName: title.DirectoryName,
+		Descriptor:     *chapterDesc,
+		Name:           builder.String(),
+		DirectoryName:  title.DirectoryName,
+		AllowedDomains: plugin.Plugin.Domains,
 	}, nil
 }
 

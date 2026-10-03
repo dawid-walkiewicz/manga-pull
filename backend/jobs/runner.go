@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +11,7 @@ import (
 
 	"main/common"
 	"main/db"
+	"main/download"
 	"main/services"
 )
 
@@ -31,15 +30,21 @@ type JobStore interface {
 	UpdateJobProgress(ctx context.Context, id int64, progress string) (*db.Job, error)
 }
 
+type Downloader interface {
+	DownloadFile(ctx context.Context, url string, filePath string, domains []string) error
+}
+
 type Runner struct {
 	store        JobStore
 	titleManager *services.TitleManager
+	downloader   Downloader
 }
 
 func NewRunner(store JobStore, titleManager *services.TitleManager) *Runner {
 	return &Runner{
 		store:        store,
 		titleManager: titleManager,
+		downloader:   download.NewDownloader(),
 	}
 }
 
@@ -115,7 +120,7 @@ func (r *Runner) downloadChapter(ctx context.Context, job *db.Job) error {
 
 	LogJob(ctx, r.store, job.ID, Info, "downloading pages")
 	for i, page := range details.Descriptor.Pages {
-		err = downloadFile(page.Url, filepath.Join(chapterDir, fmt.Sprint(i, ".png")))
+		err = r.downloader.DownloadFile(ctx, page.Url, filepath.Join(chapterDir, fmt.Sprint(i, ".png")), details.AllowedDomains)
 		if err != nil {
 			return err
 		}
@@ -134,31 +139,6 @@ func (r *Runner) downloadChapter(ctx context.Context, job *db.Job) error {
 		return err
 	}
 	LogJob(ctx, r.store, job.ID, Info, "chapter download finished")
-
-	return nil
-}
-
-func downloadFile(url string, filePath string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unsuccessful download, HTTP status: %s", resp.Status)
-	}
-
-	out, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return err
-	}
 
 	return nil
 }

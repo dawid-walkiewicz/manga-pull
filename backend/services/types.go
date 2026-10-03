@@ -18,7 +18,8 @@ type RefreshTitleResult struct {
 }
 
 type ChapterDownload struct {
-	Descriptor    plugins.ChapterDescriptor
-	Name          string
-	DirectoryName string
+	Descriptor     plugins.ChapterDescriptor
+	Name           string
+	DirectoryName  string
+	AllowedDomains []string
 }

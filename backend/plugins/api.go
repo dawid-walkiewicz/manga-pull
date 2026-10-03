@@ -2,12 +2,10 @@ package plugins
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
+	"main/common"
 	"net/http"
-	"net/url"
-	"slices"
 	"strings"
 )
 
@@ -57,21 +55,9 @@ func NewPluginAPIClient(plugin *Plugin) *PluginAPIClient {
 }
 
 func (c *PluginAPIClient) Request(req HTTPRequest) (map[string]any, error) {
-	u, err := url.Parse(req.URL)
+	err := common.CheckDomains(req.URL, c.domains)
 	if err != nil {
 		return nil, err
-	}
-
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("unsupported URL scheme %q", u.Scheme)
-	}
-
-	if u.Hostname() == "" {
-		return nil, fmt.Errorf("missing URL host")
-	}
-
-	if !slices.Contains(c.domains, u.Hostname()) {
-		return nil, fmt.Errorf("domain %q is not allowed", u.Hostname())
 	}
 
 	method := req.Method
