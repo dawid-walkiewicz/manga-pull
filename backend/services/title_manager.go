@@ -214,12 +214,12 @@ func (m *TitleManager) BeginChapterDownload(
 		return nil, err
 	}
 
-	plugin, err := m.pluginManager.Runtime(title.PluginID)
+	runtime, err := m.pluginManager.Runtime(title.PluginID)
 	if err != nil {
 		return nil, err
 	}
 
-	chapterDesc, err := plugin.GetChapter(chapter.RemoteID)
+	chapterDesc, err := runtime.GetChapter(chapter.RemoteID)
 	if err != nil {
 		return nil, err
 	}
@@ -241,11 +241,16 @@ func (m *TitleManager) BeginChapterDownload(
 		return nil, err
 	}
 
+	plugin, ok := m.pluginManager.Plugin(title.PluginID)
+	if !ok {
+		return nil, fmt.Errorf("plugin error: %q", plugin.ID)
+	}
+
 	return &ChapterDownload{
 		Descriptor:     *chapterDesc,
 		Name:           builder.String(),
 		DirectoryName:  title.DirectoryName,
-		AllowedDomains: plugin.Plugin.Domains,
+		AllowedDomains: plugin.Domains,
 	}, nil
 }
 

@@ -47,12 +47,12 @@ func GetPluginIconHandler(service *plugins.PluginManager) http.HandlerFunc {
 		icon, contentType, err := plugins.ReadIcon(plugin)
 
 		if err != nil {
-			log.Printf("GetPluginIcon: %v", err)
 			if errors.Is(err, plugins.ErrPluginIconNotFound) {
 				WriteError(w, http.StatusNotFound, "plugin icon not found")
 				return
 			}
 
+			log.Printf("GetPluginIcon: %v", err)
 			WriteError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}

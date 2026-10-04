@@ -42,7 +42,7 @@ func main() {
 
 	pluginManager := plugins.NewPluginManager(dbStore, common.PluginsDir)
 
-	if err := pluginManager.Start(context.Background()); err != nil {
+	if err := pluginManager.Scan(context.Background()); err != nil {
 		log.Printf("plugin manager start: %v", err)
 	}
 

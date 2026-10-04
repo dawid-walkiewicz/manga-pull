@@ -422,7 +422,7 @@ func (s *Store) ListPlugins(ctx context.Context) ([]PluginRecord, error) {
 	return plugins, nil
 }
 
-func (s *Store) CreatePlugins(ctx context.Context, plugins []PluginRecord) error {
+func (s *Store) InsertPlugins(ctx context.Context, plugins []PluginRecord) error {
 	if len(plugins) == 0 {
 		return nil
 	}

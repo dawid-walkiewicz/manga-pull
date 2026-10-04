@@ -2,8 +2,8 @@ package plugins
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"log"
 
 	"main/db"
 )
@@ -12,7 +12,7 @@ type PluginManager struct {
 	store *db.Store
 	dir   string
 
-	plugins  []Plugin
+	plugins  map[string]*Plugin
 	runtimes *RuntimeRegistry
 }
 
@@ -20,8 +20,8 @@ func NewPluginManager(store *db.Store, dir string) *PluginManager {
 	return &PluginManager{
 		store:    store,
 		dir:      dir,
-		plugins:  make([]Plugin, 0),
-		runtimes: NewRuntimeRegistry(),
+		plugins:  make(map[string]*Plugin),
+		runtimes: nil,
 	}
 }
 
@@ -38,38 +38,9 @@ func convertPlugins(plugins []Plugin) []db.PluginRecord {
 	return conv_plugins
 }
 
-func (m *PluginManager) findPlugin(id string) *Plugin {
-	for i := range m.plugins {
-		if m.plugins[i].ID == id {
-			return &m.plugins[i]
-		}
-	}
-
-	return nil
-}
-
 func (m *PluginManager) Plugin(id string) (*Plugin, bool) {
-	plugin := m.findPlugin(id)
-	return plugin, plugin != nil
-}
-
-func applyPluginState(
-	discovered []Plugin,
-	records []db.PluginRecord,
-) []Plugin {
-	byID := make(map[string]db.PluginRecord, len(records))
-
-	for _, record := range records {
-		byID[record.ID] = record
-	}
-
-	for i := range discovered {
-		if record, ok := byID[discovered[i].ID]; ok {
-			discovered[i].Enabled = record.Enabled
-		}
-	}
-
-	return discovered
+	plugin, ok := m.plugins[id]
+	return plugin, ok
 }
 
 func (m *PluginManager) Scan(ctx context.Context) error {
@@ -81,8 +52,8 @@ func (m *PluginManager) Scan(ctx context.Context) error {
 	discovered := LoadPlugins(paths)
 	items := convertPlugins(discovered)
 
-	if err := m.store.CreatePlugins(ctx, items); err != nil {
-		return fmt.Errorf("create plugins: %w", err)
+	if err := m.store.InsertPlugins(ctx, items); err != nil {
+		return fmt.Errorf("insert plugins: %w", err)
 	}
 
 	records, err := m.store.ListPlugins(ctx)
@@ -90,47 +61,56 @@ func (m *PluginManager) Scan(ctx context.Context) error {
 		return fmt.Errorf("list plugins: %w", err)
 	}
 
-	m.plugins = applyPluginState(discovered, records)
+	recordsByID := make(map[string]db.PluginRecord, len(records))
+
+	for _, record := range records {
+		recordsByID[record.ID] = record
+	}
+
+	registry := NewRuntimeRegistry()
+
+	for _, dp := range discovered {
+		if r, ok := recordsByID[dp.ID]; ok {
+			dp.Enabled = r.Enabled
+		}
+		m.plugins[dp.ID] = &dp
+		plugin := m.plugins[dp.ID]
+		delete(recordsByID, dp.ID)
+
+		if plugin.Enabled {
+			runtime, err := NewRuntime(plugin)
+			if err != nil {
+				errMsg := err.Error()
+				plugin.Error = &errMsg
+				log.Println(fmt.Errorf(
+					"start plugin %q: %w",
+					plugin.ID,
+					err,
+				))
+				continue
+			}
+
+			plugin.Error = nil
+			registry.Register(plugin.ID, runtime)
+		}
+	}
+
+	for _, r := range recordsByID {
+		errStr := fmt.Sprintf("plugin not found: %s", r.ID)
+		m.plugins[r.ID] = &Plugin{
+			Enabled: false,
+			Error:   &errStr,
+		}
+	}
+
+	m.runtimes = registry
 
 	return nil
 }
 
-func (m *PluginManager) Start(ctx context.Context) error {
-	if err := m.Scan(ctx); err != nil {
-		return err
-	}
-
-	var startErrs []error
-
-	for i := range m.plugins {
-		plugin := &m.plugins[i]
-
-		if !plugin.Enabled {
-			continue
-		}
-
-		runtime, err := NewRuntime(plugin)
-		if err != nil {
-			errMsg := err.Error()
-			plugin.Error = &errMsg
-			startErrs = append(startErrs, fmt.Errorf(
-				"start plugin %q: %w",
-				plugin.ID,
-				err,
-			))
-			continue
-		}
-
-		plugin.Error = nil
-		m.runtimes.Register(runtime)
-	}
-
-	return errors.Join(startErrs...)
-}
-
 func (m *PluginManager) Enable(ctx context.Context, id string) error {
-	plugin := m.findPlugin(id)
-	if plugin == nil {
+	plugin, ok := m.plugins[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrPluginNotFound, id)
 	}
 
@@ -149,7 +129,7 @@ func (m *PluginManager) Enable(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: %v", ErrPluginRuntime, err)
 	}
 
-	m.runtimes.Register(runtime)
+	m.runtimes.Register(plugin.ID, runtime)
 
 	if err := m.store.SetPluginEnabled(ctx, id, true); err != nil {
 		m.runtimes.Unregister(id)
@@ -161,8 +141,8 @@ func (m *PluginManager) Enable(ctx context.Context, id string) error {
 }
 
 func (m *PluginManager) Disable(ctx context.Context, id string) error {
-	plugin := m.findPlugin(id)
-	if plugin == nil {
+	plugin, ok := m.plugins[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrPluginNotFound, id)
 	}
 
@@ -181,7 +161,11 @@ func (m *PluginManager) Disable(ctx context.Context, id string) error {
 }
 
 func (m *PluginManager) Plugins() []Plugin {
-	return m.plugins
+	var plugins []Plugin
+	for _, v := range m.plugins {
+		plugins = append(plugins, *v)
+	}
+	return plugins
 }
 
 func (m *PluginManager) Runtime(id string) (*PluginRuntime, error) {

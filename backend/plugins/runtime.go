@@ -24,8 +24,6 @@ var RequiredFunctions = []string{
 }
 
 type PluginRuntime struct {
-	Plugin *Plugin
-
 	vm     *goja.Runtime
 	client *PluginAPIClient
 
@@ -61,7 +59,6 @@ func NewRuntime(plugin *Plugin) (*PluginRuntime, error) {
 	}
 
 	runtime := PluginRuntime{
-		Plugin: plugin,
 		vm:     vm,
 		client: client,
 	}
